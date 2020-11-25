@@ -44,7 +44,7 @@ class DataHandler:
 
         epoch_dataset = CustomDataset(x_array, y_array, transform)
 
-        epoch_loader = torch.utils.data.DataLoader(epoch_dataset, batch_size=x_array.shape[0], shuffle=True, num_workers=4, pin_memory=True if self.device == 'cuda' else False)
+        epoch_loader = torch.utils.data.DataLoader(epoch_dataset, batch_size=x_array.shape[0], shuffle=True, num_workers=4)
 
         for data in epoch_loader:
             x_tensor, y_tensor = data

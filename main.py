@@ -10,6 +10,8 @@ import argparse
 import json
 import numpy as np
 import re
+import torch.nn as nn
+
 
 from tqdm import trange
 from Optimizers import Optimizers
@@ -20,10 +22,7 @@ from Seed import getSeed
 from Logging import Logging, info, success, warn
 from LRSchedulers import LinearCosineLR
 from FGSM import fgsm
-
-#jacobian imports
 from jacobian import JacobianReg
-import torch.nn as nn
 
 # ---------------------------------------------------------------------------- #
 #                                ARGUMENT PARSER                               #
@@ -44,7 +43,7 @@ parser.add_argument('--num_val', type=int, default=200, help='Number of validati
 parser.add_argument('--imsize', type=int, help='Image size, set to 32 for MNIST and CIFAR10, set to 128 for Imagenette')
 parser.add_argument('--seed', type=int, help='Seed to be used during training, choose from 27432, 30416, 48563, 51985 or 84216 to reproduce results in the paper')
 parser.add_argument('--time', type=int, default=-1, help='Seed to set the seed to be used during training, not used by default')
-# Jacobian parameters
+# Jacobian parameters.
 parser.add_argument('--jacobian', type=int, default=0, help='Whether to use jacobian regularization or not.')
 # Gradient regularization parameters. 
 parser.add_argument('--grad_reg_lambda', type=float, default=0.0, help='Lambda for gradient regularization, set to 10,000 for MNIST, CIFAR10 and Imagenette, set to 1,000,000 for Imagenette when doing both adversarial training and gradient regularization')
@@ -91,7 +90,6 @@ if resume:
             with open(json_log_path) as f:
                 result_dict = json.load(f)
                 result_dict['resume_epoch'] = resume_epoch
-                #param = argparse.Namespace(**result_dict)
                 success('Successfully read result JSON file.')
         else:
             warn('resume_dir not found. Starting from epoch 0.')
@@ -116,7 +114,6 @@ if resume:
                 result_dict['train_acc'] = result_dict['train_acc'][:resume_epoch]
                 result_dict['val_loss'] = result_dict['val_loss'][:resume_epoch]
                 result_dict['val_acc'] = result_dict['val_acc'][:resume_epoch]
-                #param = argparse.Namespace(**result_dict)
                 success('Successfully read result JSON file.')
         else:
             warn('resume_dir not found. Starting from epoch 0.')
@@ -131,7 +128,7 @@ seed = param.seed
 if param.time != -1:
     param.seed = getSeed(time=param.time)
 #Jacobian parameters.
-jacobian=param.jacobian
+jacobian = param.jacobian
 # Gradient regularization parameters.
 grad_reg_lambda = param.grad_reg_lambda
 num_unlabeled_per_labeled = param.num_unlabeled_per_labeled
@@ -171,7 +168,7 @@ elif dataset == 'CIFAR10':
 elif dataset == 'Imagenette':
     from DatasetImagenette import DatasetImagenette as Dataset
 else:
-    warn("Unknown dataset. Exiting...")
+    warn('Unknown dataset. Exiting...')
     exit
 dataset_class = Dataset(param)
 (x_train_array, y_train_array), (x_val_array, y_val_array) = dataset_class.getTrainVal()
@@ -234,12 +231,13 @@ for epoch in range(starting_epoch, num_epochs + 1):
     x_anchor_tensor = []
     y_anchor_tensor = []
 
-    #Get augmented labeled data
+    # Get augmented labeled data
     x_labeled_tensor, y_labeled_tensor = datahandler.loadAugmentedLabeled(x_train_array, y_train_array)
-    #Generate unlabeled data
+    
+    # Generate unlabeled data
     x_unlabeled_tensor, y_unlabeled_tensor = unlabeled_generator.addUnlabeled(x_labeled_tensor)
 
-    #Concatenate Labeled and Unlabeled data (Anchors) and permute
+    # Concatenate Labeled and Unlabeled data (Anchors) and permute
     x_anchor_tensor = torch.cat((x_labeled_tensor, x_unlabeled_tensor), dim=0)
     y_anchor_tensor = torch.cat((y_labeled_tensor, y_unlabeled_tensor), dim=0)
 
@@ -321,7 +319,7 @@ for epoch in range(starting_epoch, num_epochs + 1):
             ce = criterion1(x_anchor_clean_logits, y_anchor_clean)
             gr = grad_reg_lambda * criterion2(x_anchor_clean, x_anchor_clean_logits)
         else:
-            #Use our own regularization.
+            # Use our own regularization.
             # Note that if no adversarial training occurs, then we would only be concerned with:
             # clean img, neighbor of clean img.
             combined_x = torch.cat((x_anchor_clean, x_neighbor_clean), dim=0)

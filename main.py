@@ -21,6 +21,10 @@ from Logging import Logging, info, success, warn
 from LRSchedulers import LinearCosineLR
 from FGSM import fgsm
 
+#jacobian imports
+from jacobian import JacobianReg
+import torch.nn as nn
+
 # ---------------------------------------------------------------------------- #
 #                                ARGUMENT PARSER                               #
 # ---------------------------------------------------------------------------- #
@@ -40,6 +44,8 @@ parser.add_argument('--num_val', type=int, default=200, help='Number of validati
 parser.add_argument('--imsize', type=int, help='Image size, set to 32 for MNIST and CIFAR10, set to 128 for Imagenette')
 parser.add_argument('--seed', type=int, help='Seed to be used during training, choose from 27432, 30416, 48563, 51985 or 84216 to reproduce results in the paper')
 parser.add_argument('--time', type=int, default=-1, help='Seed to set the seed to be used during training, not used by default')
+# Jacobian parameters
+parser.add_argument('--jacobian', type=int, default=0, help='Whether to use jacobian regularization or not.')
 # Gradient regularization parameters. 
 parser.add_argument('--grad_reg_lambda', type=float, default=0.0, help='Lambda for gradient regularization, set to 10,000 for MNIST, CIFAR10 and Imagenette, set to 1,000,000 for Imagenette when doing both adversarial training and gradient regularization')
 parser.add_argument('--num_unlabeled_per_labeled', type=int, default=0, help='Number of unlabeled points to be make per labeled point')
@@ -85,7 +91,7 @@ if resume:
             with open(json_log_path) as f:
                 result_dict = json.load(f)
                 result_dict['resume_epoch'] = resume_epoch
-                param = argparse.Namespace(**result_dict)
+                #param = argparse.Namespace(**result_dict)
                 success('Successfully read result JSON file.')
         else:
             warn('resume_dir not found. Starting from epoch 0.')
@@ -110,7 +116,7 @@ if resume:
                 result_dict['train_acc'] = result_dict['train_acc'][:resume_epoch]
                 result_dict['val_loss'] = result_dict['val_loss'][:resume_epoch]
                 result_dict['val_acc'] = result_dict['val_acc'][:resume_epoch]
-                param = argparse.Namespace(**result_dict)
+                #param = argparse.Namespace(**result_dict)
                 success('Successfully read result JSON file.')
         else:
             warn('resume_dir not found. Starting from epoch 0.')
@@ -124,6 +130,8 @@ num_train = param.num_train
 seed = param.seed
 if param.time != -1:
     param.seed = getSeed(time=param.time)
+#Jacobian parameters.
+jacobian=param.jacobian
 # Gradient regularization parameters.
 grad_reg_lambda = param.grad_reg_lambda
 num_unlabeled_per_labeled = param.num_unlabeled_per_labeled
@@ -162,13 +170,15 @@ elif dataset == 'CIFAR10':
     from DatasetCIFAR10 import DatasetCIFAR10 as Dataset
 elif dataset == 'Imagenette':
     from DatasetImagenette import DatasetImagenette as Dataset
-
+else:
+    warn("Unknown dataset. Exiting...")
+    exit
 dataset_class = Dataset(param)
 (x_train_array, y_train_array), (x_val_array, y_val_array) = dataset_class.getTrainVal()
 num_labeled = x_train_array.shape[0]
 neighbor_generator = NeighborGenerator(neighbor_noise_std, num_neighbor_per_anchor)
 unlabeled_generator = UnlabeledGenerator(unlabeled_noise_std, num_unlabeled_per_labeled)
-datahandler = DataHandler(dataset_class, 'cpu')
+datahandler = DataHandler(dataset_class, device)
 x_val, y_val = datahandler.loadValidation(x_val_array, y_val_array)
 del x_val_array, y_val_array
 
@@ -176,7 +186,7 @@ logging = Logging(param.__dict__)
 
 model = dataset_class.getModel()
 criterion1 = CELoss()
-criterion2 = GRLoss()
+criterion2 = GRLoss() if jacobian ==0 else JacobianReg()
 
 # ---------------------------------------------------------------------------- #
 #                             INSTANTIATE OPTIMIZER                            #
@@ -196,7 +206,7 @@ starting_epoch = 1
 if resume:
     # Read the result JSON file.
     if os.path.exists(json_log_path):
-        checkpoint = torch.load(os.path.join(resume_dir, 'model_epoch={}.pt'.format(resume_epoch)))
+        checkpoint = torch.load(os.path.join(resume_dir, 'model_epoch={}.pt'.format(resume_epoch)), map_location=torch.device(device))
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         starting_epoch = resume_epoch + 1
@@ -206,11 +216,12 @@ if resume:
 # ---------------------------------------------------------------------------- #
 #                                EPOCH TRAINING LOOP                           #
 # ---------------------------------------------------------------------------- #
-success(f'Starting{" adversarial" if adversarial else ""} training{" with" if grad_reg_lambda > 0 else " without"} regularization.')
+success(f'Starting{" adversarial" if adversarial else ""} training {f"with" if grad_reg_lambda > 0 else " without"} {"Jacobian" if jacobian else "Gradient"} regularization.')
 
 for epoch in range(starting_epoch, num_epochs + 1):
 
-    info(f'\nEpoch {epoch}')
+    print()
+    info(f'Epoch {epoch}')
 
     ce_loss = 0.0
     gr_loss = 0.0
@@ -300,8 +311,17 @@ for epoch in range(starting_epoch, num_epochs + 1):
 
             # Clear up unused variables to reduce RAM usage.
             del x_anchor_clean_squeezed, x_anchor_adv, x_anchor_adv_logits, x_neighbor_adv, x_neighbor_adv_logits, y_anchor_adv
+        elif jacobian:
+            # Jacobian Regularization requires gradients to be preserved for calculation of Jacobian loss.
+            x_anchor_clean.requires_grad = True
+            # Perform forward pass.
+            x_anchor_clean_logits = model(x_anchor_clean)
 
+            # Calculate losses based on Jacobian regularization.
+            ce = criterion1(x_anchor_clean_logits, y_anchor_clean)
+            gr = grad_reg_lambda * criterion2(x_anchor_clean, x_anchor_clean_logits)
         else:
+            #Use our own regularization.
             # Note that if no adversarial training occurs, then we would only be concerned with:
             # clean img, neighbor of clean img.
             combined_x = torch.cat((x_anchor_clean, x_neighbor_clean), dim=0)
@@ -336,7 +356,10 @@ for epoch in range(starting_epoch, num_epochs + 1):
         train_acc += torch.sum(y_anchor_clean == y_pred).cpu().item()
 
     # Clear up unused variables to reduce RAM usage.
-    del x_anchor_clean, x_anchor_clean_logits, x_neighbor_clean, x_neighbor_clean_logits, y_anchor_clean
+    if jacobian:
+        del x_anchor_clean, x_anchor_clean_logits, y_anchor_clean
+    else:
+        del x_anchor_clean, x_anchor_clean_logits, x_neighbor_clean, x_neighbor_clean_logits, y_anchor_clean
         
     ce_loss /= num_labeled
     gr_loss /= batchIdx
@@ -397,6 +420,6 @@ for epoch in range(starting_epoch, num_epochs + 1):
             'model_state_dict': model.state_dict(),
             'optimizer_state_dict' : optimizer.state_dict(),
         }
-        logging.save_checkpoint(checkpoint_dict, 'model_epoch={}.pt'.format(epoch))
+        logging.save_checkpoint(checkpoint_dict, f'model_epoch={epoch}.pt')
 
 success('Code completed successfully.')

@@ -76,16 +76,16 @@ min_epsilon = param.min_epsilon
 max_epsilon = param.max_epsilon
 step_epsilon = param.step_epsilon
 # Graph plotting parameters.
-colors = param.colors
-styles = param.styles
-legend_labels = settings_list if param.legend_labels == '' else param.legend_labels
+colors = [f'#{c}' for c in param.colors.split(',')]
+styles = param.styles.split(',')
+legend_labels = settings_list if param.legend_labels == '' else param.legend_labels.split(',')
 
 target_path = os.path.join(output_dir, dataset)
 results_dir = os.path.join(target_path, 'Robust_Accuracy_Results', attack_method)
 
 # Matplotlib parameters.
 rc_params = {'legend.fontsize': 'x-large',
-          'figure.figsize': (5, 5),
+          'figure.figsize': (6, 6),
           'axes.labelsize': 'x-large',
           'axes.titlesize': 'x-large',
           'xtick.labelsize': 'x-large',

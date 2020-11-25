@@ -8,7 +8,6 @@ Created on Thu May 28 13:59:00 2020
 import torch
 from torch.utils.data import Dataset
 from PIL import Image
-from FoolboxAttack import FoolboxAttack
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,6 +21,7 @@ class DataHandler:
 
 
     def _loadNumpyToTensor(self, x_array, y_array, transform):
+
         """
 
         Parameters
@@ -44,12 +44,10 @@ class DataHandler:
 
         epoch_dataset = CustomDataset(x_array, y_array, transform)
 
-        epoch_loader = torch.utils.data.DataLoader(epoch_dataset, batch_size=x_array.shape[0], shuffle=True, num_workers=4, pin_memory=True if self.device == 'cuda' else False)
+        epoch_loader = torch.utils.data.DataLoader(epoch_dataset, batch_size=x_array.shape[0], shuffle=True, num_workers=4)
 
         for data in epoch_loader:
             x_tensor, y_tensor = data
-            x_tensor = x_tensor.to(self.device)
-            y_tensor = y_tensor.to(self.device)
 
         return x_tensor, y_tensor
 
@@ -68,16 +66,6 @@ class DataHandler:
         y_labeled_tensor = y_labeled_tensor.to(device)
 
         return x_labeled_tensor, y_labeled_tensor
-
-    # def loadAdversarialLabeled(self, x_train_tensor, y_train_tensor, model):
-    #     x_train_shape = x_train_tensor.shape
-    #     assert x_train_shape[0] == 1
-    #     success = 0
-    #     x_train_tensor = torch.squeeze(x_train_tensor, 0)
-    #     r, loop_i, label_orig, label_pert, pert_image = deepfool(x_train_tensor, model)
-    #     if label_orig != label_pert:
-    #         success = 1
-    #     return pert_image, y_train_tensor , success
 
 class CustomDataset(Dataset):
     def __init__(self, x_data, y_data, transform=None):

@@ -26,7 +26,7 @@ def loadModel(param):
     elif param.model == 'TorchResNet18':
         return resnet18(pretrained=False, progress=True).to(param.device)
     elif param.model == 'XResNet18':
-        return XResNet18(se = True, version='3', act_fn = param.activation, params = param).to(param.device)
+        return XResNet18(se = True, params = param, version='3', act_fn = param.activation).to(param.device)
     elif param.model == 'XResNet18Mod':
         return XResNet18_mod(se = True, version='3', act_fn = param.activation).to(param.device)
     elif param.model == 'XResNet34':

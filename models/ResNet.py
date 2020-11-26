@@ -103,7 +103,6 @@ class ResNet9(nn.Module):
         x = self.block3_1(x)
         x = x + self.block3_2(x)
         x = F.max_pool2d(x, 8, 8)
-        x = x.view(-1, 512)
         
         # If it is specified in the params that we will inject noise in the intermediate layer, then we shall proceed to do so
         if self.params.inject_noise:
@@ -111,7 +110,8 @@ class ResNet9(nn.Module):
                 x[0] = self.unlabeled_generator.addUnlabeled(x[0])
             if not self.params.jacobian: 
                 x = torch.cat((x[0], self.neighbor_generator.addNeighbor(x[1])), dim = 0)
-
+        
+        x = x.view(-1, 512)
         x = self.fc(x)
         return x
 

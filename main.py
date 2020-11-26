@@ -11,6 +11,7 @@ import json
 import numpy as np
 import re
 import torch.nn as nn
+import pdb
 
 from tqdm import trange
 from Optimizers import Optimizers
@@ -261,8 +262,8 @@ for epoch in range(starting_epoch, num_epochs + 1):
     y_anchor_tensor = y_anchor_tensor[idx]
 
     if inject_noise:
-        x_anchor_tensor = torch.repeat_interleave(x_anchor_tensor, 2)
-        y_anchor_tensor = torch.repeat_interleave(y_anchor_tensor, 2)
+        x_anchor_tensor = torch.repeat_interleave(x_anchor_tensor, 2, dim=0)
+        y_anchor_tensor = torch.repeat_interleave(y_anchor_tensor, 2, dim=0)
 
     # ---------------------------------------------------------------------------- #
     #                                BATCH TRAINING LOOP                           #
@@ -282,24 +283,21 @@ for epoch in range(starting_epoch, num_epochs + 1):
         y_anchor_clean = y_anchor_tensor[start_batch:end_batch].to(device)
 
         if inject_noise:
-            combined_x = torch.cat((x_anchor_clean, x_anchor_clean), dim=0) if jacobian else x_anchor_clean
+            combined_x = torch.cat((x_anchor_clean, x_anchor_clean), dim=0) if not jacobian else x_anchor_clean
 
-            # Perform forward pass.
-            combined_logits = model(combined_x, (batchIdx % 2))
-
-            if jacobian: x_anchor_clean.requires_grad = True
-
-            # Then, we get the logits for the respective images we passed in.
-            x_anchor_clean_logits = combined_logits[0:batch_size]
-            x_neighbor_clean_logits = combined_logits[batch_size]
-
-            # Calculate individual losses.
-            ce = criterion1(x_anchor_clean_logits, y_anchor_clean)
-
-            if jacobian: 
-                gr = grad_reg_lambda * criterion2(x_anchor_clean, x_anchor_clean_logits)
+            if jacobian:
+                combined_x.requires_grad = True
+                x_anchor_clean_logits = model(combined_x, unlabeled_mode=batchIdx%2)
+                gr = grad_reg_lambda * criterion2(combined_x, x_anchor_clean_logits)
             else:
+                combined_logits, x_anchor_clean, x_neighbor_clean = model(combined_x, unlabeled_mode=batchIdx%2)
+                x_anchor_clean_logits = combined_logits[0:batch_size]
+                x_neighbor_clean_logits = combined_logits[batch_size]
                 gr = grad_reg_lambda * criterion2(x_anchor_clean_logits.softmax(dim=-1), x_neighbor_clean_logits.softmax(dim=-1), x_anchor_clean, x_neighbor_clean)
+            if not batchIdx % 2:
+                ce = criterion1(x_anchor_clean_logits, y_anchor_clean)
+            else:
+                ce = torch.tensor([0.], device=device)
 
         else:
             x_neighbor_clean = neighbor_generator.addNeighbor(x_anchor_clean)
@@ -394,12 +392,8 @@ for epoch in range(starting_epoch, num_epochs + 1):
     else:
         del x_anchor_clean, x_anchor_clean_logits, x_neighbor_clean, x_neighbor_clean_logits, y_anchor_clean
 
-    if inject_noise:
-        ce_loss /= (num_labeled*2)
-        train_acc /= (num_labeled*2)
-    else:
-        ce_loss /= num_labeled
-        train_acc /= num_labeled
+    train_acc /= num_labeled
+    ce_loss /= num_labeled
     gr_loss /= batchIdx
 
     # ---------------------------------------------------------------------------- #

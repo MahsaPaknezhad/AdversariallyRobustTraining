@@ -1,7 +1,8 @@
-
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
 # Utility class that implements XResNet variants.
-
+import torch
 import torch.nn as nn
 from ImagenetteUtils.Downsample import Downsample
 from ImagenetteUtils.Operations import conv, bn, act, conv_2d, selfattention, conv_2d_v2
@@ -80,7 +81,7 @@ def XResNet152(version='1', **kwargs):
     return model
 
 class XResNet(nn.Module):
-    def __init__(self, block, layers, c_out=10, drop_prob = 0.2, params, **kwargs):
+    def __init__(self, block, layers, params, c_out=10, drop_prob = 0.2, **kwargs):
         self.inplanes = 64
         super(XResNet, self).__init__()
         self.conv1 = conv_2d(3, 32, stride=2, blur=False)
@@ -106,6 +107,7 @@ class XResNet(nn.Module):
             self.neighbor_generator = NeighborGenerator(self.params.neighbor_noise_std, 1)
     
     def forward(self, x, unlabeled_mode = False):
+        import pdb
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.conv3(x)
@@ -116,19 +118,22 @@ class XResNet(nn.Module):
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
+
+        if self.training and self.params.inject_noise:
+            if unlabeled_mode:
+                x[0], _ = self.unlabeled_generator.addUnlabeled(x[0]) 
+            original = x[0].reshape([1, 512, 4, 4]).clone()
+            if not self.params.jacobian:
+                neighbor = self.neighbor_generator.addNeighbor(x[1]).reshape([1, 512, 4, 4])
+                x = torch.cat((x[0].reshape([1, 512, 4, 4]), neighbor), dim = 0)
+
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
-
-        if self.params.inject_noise:
-            if unlabeled_mode:
-                x[0] = self.unlabeled_generator.addUnlabeled(x[0]) 
-            if not self.params.jacobian:
-                x = torch.cat((x[0], self.neighbor_generator.addNeighbor(x[1])), dim = 0)
-
         x = self.fc(x)
-
-        #Classifier
-        return x
+        if self.training and self.params.inject_noise and not self.params.jacobian:
+            return x, original, neighbor
+        else: 
+            return x
 
     def _make_ds(self, block, planes, stride):
         downsample = None

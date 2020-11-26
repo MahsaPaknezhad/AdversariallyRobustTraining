@@ -59,8 +59,9 @@ class BasicModel(nn.Module): #LeNet
         # If it is specified in the params that we will inject noise in the intermediate layer, then we shall proceed to do so
         if self.params.inject_noise:
             if unlabeled_mode:
-                x[0] = self.unlabeled_generator.addUnlabeled(x[0]) 
-            x = torch.cat((x[0], self.neighbor_generator.addNeighbor(x[1])), dim = 0)
+                x[0] = self.unlabeled_generator.addUnlabeled(x[0])
+            if not self.params.jacobian:
+                x = torch.cat((x[0], self.neighbor_generator.addNeighbor(x[1])), dim = 0)
 
         # (400)
         x = self.fc1(x)

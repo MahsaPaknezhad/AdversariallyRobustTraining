@@ -282,7 +282,7 @@ for epoch in range(starting_epoch, num_epochs + 1):
         y_anchor_clean = y_anchor_tensor[start_batch:end_batch].to(device)
 
         if inject_noise:
-            combined_x = torch.cat((x_anchor_clean, x_anchor_clean), dim=0)
+            combined_x = torch.cat((x_anchor_clean, x_anchor_clean), dim=0) if jacobian else x_anchor_clean
 
             # Perform forward pass.
             combined_logits = model(combined_x, (batchIdx % 2))
@@ -296,8 +296,10 @@ for epoch in range(starting_epoch, num_epochs + 1):
             # Calculate individual losses.
             ce = criterion1(x_anchor_clean_logits, y_anchor_clean)
 
-            if jacobian: gr = grad_reg_lambda * criterion2(x_anchor_clean, x_anchor_clean_logits)
-            else: gr = grad_reg_lambda * criterion2(x_anchor_clean_logits.softmax(dim=-1), x_neighbor_clean_logits.softmax(dim=-1), x_anchor_clean, x_neighbor_clean)
+            if jacobian: 
+                gr = grad_reg_lambda * criterion2(x_anchor_clean, x_anchor_clean_logits)
+            else:
+                gr = grad_reg_lambda * criterion2(x_anchor_clean_logits.softmax(dim=-1), x_neighbor_clean_logits.softmax(dim=-1), x_anchor_clean, x_neighbor_clean)
 
         else:
             x_neighbor_clean = neighbor_generator.addNeighbor(x_anchor_clean)

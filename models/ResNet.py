@@ -10,16 +10,28 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import sys
+import os
+sys.path.insert(1, os.path.realpath(os.path.pardir))
+from NoiseGenerator import NeighborGenerator, UnlabeledGenerator
 
 class ResNet9(nn.Module):
-    def __init__(self, activation):
+    def __init__(self, params):
         super(ResNet9, self).__init__()
         
-        if activation == 'relu':
+        
+
+        self.params = params
+
+        if self.params.inject_noise:
+            self.unlabeled_generator = UnlabeledGenerator(self.params.unlabeled_noise_std, 1)
+            self.neighbor_generator = NeighborGenerator(self.params.neighbor_noise_std, 1)
+
+        if self.params.activation == 'relu':
             self.activation = nn.ReLU
-        elif activation == 'sigmoid':
+        elif self.params.activation == 'sigmoid':
             self.activation = nn.Sigmoid
-        elif activation == 'celu':
+        elif self.params.activation == 'celu':
             self.activation = nn.CELU
     
         self.prep = nn.Sequential(
@@ -82,7 +94,7 @@ class ResNet9(nn.Module):
             nn.Linear(512, 10)
         )
    
-    def forward(self, x):
+    def forward(self, x, unlabeled_mode = False):
         x = self.prep(x)
         x = self.block1_1(x)
         x = x + self.block1_2(x)
@@ -92,6 +104,13 @@ class ResNet9(nn.Module):
         x = x + self.block3_2(x)
         x = F.max_pool2d(x, 8, 8)
         x = x.view(-1, 512)
+        
+        # If it is specified in the params that we will inject noise in the intermediate layer, then we shall proceed to do so
+        if self.params.inject_noise:
+            if unlabeled_mode:
+                x[0] = self.unlabeled_generator.addUnlabeled(x[0]) 
+            x = torch.cat((x[0], self.neighbor_generator.addNeighbor(x[1])), dim = 0)
+        
         x = self.fc(x)
         return x
 

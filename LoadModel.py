@@ -12,9 +12,9 @@ from models.WideResNetModified import WideResNetModified
 
 def loadModel(param):
     if param.model == 'BasicModel':
-        return BasicModel(param.activation).to(param.device)
+        return BasicModel(param).to(param.device)
     elif param.model == 'ResNet9':
-        return ResNet9(param.activation).to(param.device)
+        return ResNet9(param).to(param.device)
     elif param.model == 'ResNet9Mod':
         return ResNet9Mod(param.activation).to(param.device)
     elif param.model == 'ResNet18':
@@ -26,7 +26,7 @@ def loadModel(param):
     elif param.model == 'TorchResNet18':
         return resnet18(pretrained=False, progress=True).to(param.device)
     elif param.model == 'XResNet18':
-        return XResNet18(se = True, version='3', act_fn = param.activation).to(param.device)
+        return XResNet18(se = True, version='3', act_fn = param.activation, params = param).to(param.device)
     elif param.model == 'XResNet18Mod':
         return XResNet18_mod(se = True, version='3', act_fn = param.activation).to(param.device)
     elif param.model == 'XResNet34':

@@ -68,3 +68,4 @@ def success(log_str):
 
 def warn(log_str):
     print(f'\033[93m\033[1m[WARN] {log_str}\033[0m')
+

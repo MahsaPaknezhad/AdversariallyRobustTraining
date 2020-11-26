@@ -5,12 +5,17 @@
 import torch.nn as nn
 from ImagenetteUtils.Downsample import Downsample
 from ImagenetteUtils.Operations import conv, bn, act, conv_2d, selfattention, conv_2d_v2
+import sys
+import os
+sys.path.insert(1, os.path.realpath(os.path.pardir))
+from NoiseGenerator import NeighborGenerator, UnlabeledGenerator
 
 # Include support for resnext
 
 def XResNet18(version = '1', **kwargs):
     # Constructs a XResNet-18 model.
     layers = [2, 2, 2, 2]
+
     if version == '1':
         model = XResNet(BasicBlock_v1, layers, **kwargs)
     elif version == '2':
@@ -75,7 +80,7 @@ def XResNet152(version='1', **kwargs):
     return model
 
 class XResNet(nn.Module):
-    def __init__(self, block, layers, c_out=10, drop_prob = 0.2, **kwargs):
+    def __init__(self, block, layers, c_out=10, drop_prob = 0.2, params, **kwargs):
         self.inplanes = 64
         super(XResNet, self).__init__()
         self.conv1 = conv_2d(3, 32, stride=2, blur=False)
@@ -83,7 +88,8 @@ class XResNet(nn.Module):
         self.conv3 = conv_2d(32, 64, stride=1)
         self.maxpool = nn.Sequential(
             nn.MaxPool2d(kernel_size=3, stride=1, padding=1),
-            Downsample(channels=64))
+            Downsample(channels=64)
+        )
         self.layer1 = self._make_layer(block, 64, layers[0], **kwargs)
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2, **kwargs)
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2, **kwargs)
@@ -91,9 +97,15 @@ class XResNet(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.fc = nn.Sequential(
             nn.Dropout(drop_prob),
-            nn.Linear(512 * block.expansion, c_out))
+            nn.Linear(512 * block.expansion, c_out)
+        )
     
-    def forward(self, x):
+        self.params = params
+        if self.params.inject_noise:
+            self.unlabeled_generator = UnlabeledGenerator(self.params.unlabeled_noise_std, 1)
+            self.neighbor_generator = NeighborGenerator(self.params.neighbor_noise_std, 1)
+    
+    def forward(self, x, unlabeled_mode = False):
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.conv3(x)
@@ -107,8 +119,15 @@ class XResNet(nn.Module):
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
 
+        if self.params.inject_noise:
+            if unlabeled_mode:
+                x[0] = self.unlabeled_generator.addUnlabeled(x[0]) 
+            x = torch.cat((x[0], self.neighbor_generator.addNeighbor(x[1])), dim = 0)
+
+        x=self.fc(x)
+
         #Classifier
-        return self.fc(x)
+        return x
 
     def _make_ds(self, block, planes, stride):
         downsample = None
@@ -184,8 +203,7 @@ class XResNetMod(nn.Module):
             downsample = nn.Sequential(*layers)
         return downsample
 
-    def _make_layer(self, block, planes, blocks, stride=1,
-                    **kwargs):  # Generate Large Block using the smaller bottleneck/basic blocks
+    def _make_layer(self, block, planes, blocks, stride=1, **kwargs):  # Generate Large Block using the smaller bottleneck/basic blocks
         layers = []
         downsample = self._make_ds(block, planes, stride)
         layers.append(block(self.inplanes, planes, stride, downsample, **kwargs))

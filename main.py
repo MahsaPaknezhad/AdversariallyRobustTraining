@@ -12,7 +12,6 @@ import numpy as np
 import re
 import torch.nn as nn
 
-
 from tqdm import trange
 from Optimizers import Optimizers
 from NoiseGenerator import NeighborGenerator, UnlabeledGenerator
@@ -51,6 +50,7 @@ parser.add_argument('--num_unlabeled_per_labeled', type=int, default=0, help='Nu
 parser.add_argument('--unlabeled_noise_std', type=float, help='Standard deviation to make unlabeled points, set to 0.016 for MNIST, 0.23769 for CIFAR10 and 0.138687 for Imagenette')
 parser.add_argument('--num_neighbor_per_anchor', type=int, default=1, help='Number of neighbor points to be make per anchor point')
 parser.add_argument('--neighbor_noise_std', type=float, default=0.002, help='Standard deviation to make neighbors, set to 0.002 for MNIST, 0.023769 for CIFRAR10 and 0.0138687 for Imagenette')
+parser.add_argument('--inject_noise', type=int, default=0, help='Inject noise in the middle of the network')
 # Adversarial training parameters.
 parser.add_argument('--adversarial', type=int, default=0, help='Whether to perform adversarial training or not')
 parser.add_argument('--epsilon', type=float, default=0.1, help='Epsilon to use during the FGSM attack, only used if adversarial=1')
@@ -146,6 +146,14 @@ num_epochs = param.num_epochs
 batch_size = param.batch_size
 log_freq = param.log_freq
 device = param.device
+inject_noise = param.inject_noise
+
+if inject_noise and adversarial:
+    raise Exception('Sorry, intermediate noise injection + adversarial training is currently unsupported.')
+    exit
+if inject_noise and param.model not in ['BasicModel', 'ResNet9', 'XResNet18']:
+    raise Exception('Noise injection can only be used with BasicModel, ResNet9, and XResNet18.')
+    exit
 
 # ---------------------------------------------------------------------------- #
 #                       MAKING THE PROGRAM DETERMINISTIC                       #
@@ -168,14 +176,14 @@ elif dataset == 'CIFAR10':
 elif dataset == 'Imagenette':
     from DatasetImagenette import DatasetImagenette as Dataset
 else:
-    warn('Unknown dataset. Exiting...')
+    warn('Unknown dataset')
     exit
 dataset_class = Dataset(param)
 (x_train_array, y_train_array), (x_val_array, y_val_array) = dataset_class.getTrainVal()
 num_labeled = x_train_array.shape[0]
 neighbor_generator = NeighborGenerator(neighbor_noise_std, num_neighbor_per_anchor)
 unlabeled_generator = UnlabeledGenerator(unlabeled_noise_std, num_unlabeled_per_labeled)
-datahandler = DataHandler(dataset_class, device)
+datahandler = DataHandler(dataset_class, 'cpu') # Fixes mem leak but consider using CUDA in future
 x_val, y_val = datahandler.loadValidation(x_val_array, y_val_array)
 del x_val_array, y_val_array
 
@@ -183,7 +191,7 @@ logging = Logging(param.__dict__)
 
 model = dataset_class.getModel()
 criterion1 = CELoss()
-criterion2 = GRLoss() if jacobian ==0 else JacobianReg()
+criterion2 = GRLoss() if jacobian == 0 else JacobianReg()
 
 # ---------------------------------------------------------------------------- #
 #                             INSTANTIATE OPTIMIZER                            #
@@ -233,20 +241,28 @@ for epoch in range(starting_epoch, num_epochs + 1):
 
     # Get augmented labeled data
     x_labeled_tensor, y_labeled_tensor = datahandler.loadAugmentedLabeled(x_train_array, y_train_array)
-    
-    # Generate unlabeled data
-    x_unlabeled_tensor, y_unlabeled_tensor = unlabeled_generator.addUnlabeled(x_labeled_tensor)
 
-    # Concatenate Labeled and Unlabeled data (Anchors) and permute
-    x_anchor_tensor = torch.cat((x_labeled_tensor, x_unlabeled_tensor), dim=0)
-    y_anchor_tensor = torch.cat((y_labeled_tensor, y_unlabeled_tensor), dim=0)
+    # Generate unlabeled data
+    if not inject_noise:
+        x_unlabeled_tensor, y_unlabeled_tensor = unlabeled_generator.addUnlabeled(x_labeled_tensor)
+        # Concatenate Labeled and Unlabeled data (Anchors)
+        x_anchor_tensor = torch.cat((x_labeled_tensor, x_unlabeled_tensor), dim=0)
+        y_anchor_tensor = torch.cat((y_labeled_tensor, y_unlabeled_tensor), dim=0)
+    else:
+        x_anchor_tensor = x_labeled_tensor
+        y_anchor_tensor = y_labeled_tensor
 
     del x_labeled_tensor, y_labeled_tensor, x_unlabeled_tensor, y_unlabeled_tensor
     success_cnt = 0
 
+    # Permute anchors
     idx = torch.randperm(y_anchor_tensor.shape[0], device='cpu')
     x_anchor_tensor = x_anchor_tensor[idx]
     y_anchor_tensor = y_anchor_tensor[idx]
+
+    if inject_noise:
+        x_anchor_tensor = torch.repeat_interleave(x_anchor_tensor, 2)
+        y_anchor_tensor = torch.repeat_interleave(y_anchor_tensor, 2)
 
     # ---------------------------------------------------------------------------- #
     #                                BATCH TRAINING LOOP                           #
@@ -257,94 +273,111 @@ for epoch in range(starting_epoch, num_epochs + 1):
     model.train()
 
     for batchIdx in trange(math.ceil(x_anchor_tensor.shape[0]/batch_size)):
-        
-        # Get training anchor batch. 
+
+        # Get training anchor batch.
         start_batch = batchIdx*batch_size
         end_batch = min((batchIdx+1)*batch_size, x_anchor_tensor.shape[0])
         
         x_anchor_clean = x_anchor_tensor[start_batch:end_batch].to(device)
         y_anchor_clean = y_anchor_tensor[start_batch:end_batch].to(device)
 
-        # Generate neighbors.
-        x_neighbor_clean = neighbor_generator.addNeighbor(x_anchor_clean)
-
-        if adversarial and (y_anchor_clean[0]!=-1):
-            # Get the ADVERSARIAL image(s) for this batch.
-
-            # Squeeze to remove information about batch size.
-            x_anchor_clean_squeezed = torch.squeeze(x_anchor_clean, 0)
-            
-            # Load the adversarial image(s).
-            x_anchor_adv, y_anchor_adv, is_successful = fgsm(x_anchor_clean_squeezed, y_anchor_clean, model, epsilon, device)
-            
-            # Add the success to success_cnt.
-            success_cnt += is_successful
-
-            # Get the neighbors for the ADVERSARIAL image(s)
-            x_neighbor_adv = neighbor_generator.addNeighbor(x_anchor_adv)
-
-            # When doing adversarial training, we pass 4 things
-            # clean img, neighbor of clean img, adv img, neighbor of adv img.
-            combined_x = torch.cat((x_anchor_clean, x_neighbor_clean, x_anchor_adv, x_neighbor_adv), dim=0)
+        if inject_noise:
+            combined_x = torch.cat((x_anchor_clean, x_anchor_clean), dim=0)
 
             # Perform forward pass.
-            combined_logits = model(combined_x)
+            combined_logits = model(combined_x, (batchIdx % 2))
+
+            if jacobian: x_anchor_clean.requires_grad = True
 
             # Then, we get the logits for the respective images we passed in.
-            # clean img, neighbor of clean img, adv img, neighbor of adv img.
-            x_anchor_clean_logits_boundary = batch_size
-            x_neighbor_clean_logits_boundary = x_anchor_clean_logits_boundary + num_neighbor_per_anchor
-            x_anchor_adv_logits_boundary = x_neighbor_clean_logits_boundary + batch_size
-
-            x_anchor_clean_logits = combined_logits[0:x_anchor_clean_logits_boundary]
-            x_neighbor_clean_logits = combined_logits[x_anchor_clean_logits_boundary:x_neighbor_clean_logits_boundary]
-            x_anchor_adv_logits = combined_logits[x_neighbor_clean_logits_boundary:x_anchor_adv_logits_boundary]
-            x_neighbor_adv_logits = combined_logits[x_anchor_adv_logits_boundary:]
+            x_anchor_clean_logits = combined_logits[0:batch_size]
+            x_neighbor_clean_logits = combined_logits[batch_size]
 
             # Calculate individual losses.
-            ce = (criterion1(x_anchor_clean_logits, y_anchor_clean) + adv_ratio * criterion1(x_anchor_adv_logits, y_anchor_clean)) / (1.0 + adv_ratio)
-            gr1 = grad_reg_lambda * criterion2(x_anchor_clean_logits.softmax(dim=-1), x_neighbor_clean_logits.softmax(dim=-1), x_anchor_clean, x_neighbor_clean)
-            gr2 = grad_reg_lambda * criterion2(x_anchor_adv_logits.softmax(dim=-1), x_neighbor_adv_logits.softmax(dim=-1), x_anchor_adv, x_neighbor_adv)
-            gr = gr1 + gr2
-
-            # Clear up unused variables to reduce RAM usage.
-            del x_anchor_clean_squeezed, x_anchor_adv, x_anchor_adv_logits, x_neighbor_adv, x_neighbor_adv_logits, y_anchor_adv
-        elif jacobian:
-            # Jacobian Regularization requires gradients to be preserved for calculation of Jacobian loss.
-            x_anchor_clean.requires_grad = True
-            # Perform forward pass.
-            x_anchor_clean_logits = model(x_anchor_clean)
-
-            # Calculate losses based on Jacobian regularization.
             ce = criterion1(x_anchor_clean_logits, y_anchor_clean)
-            gr = grad_reg_lambda * criterion2(x_anchor_clean, x_anchor_clean_logits)
+
+            if jacobian: gr = grad_reg_lambda * criterion2(x_anchor_clean, x_anchor_clean_logits)
+            else: gr = grad_reg_lambda * criterion2(x_anchor_clean_logits.softmax(dim=-1), x_neighbor_clean_logits.softmax(dim=-1), x_anchor_clean, x_neighbor_clean)
+
         else:
-            # Use our own regularization.
-            # Note that if no adversarial training occurs, then we would only be concerned with:
-            # clean img, neighbor of clean img.
-            combined_x = torch.cat((x_anchor_clean, x_neighbor_clean), dim=0)
+            x_neighbor_clean = neighbor_generator.addNeighbor(x_anchor_clean)
 
-            # Perform forward pass.
-            combined_logits = model(combined_x)
+            if adversarial and (y_anchor_clean[0]!=-1):
+                # Get the ADVERSARIAL image(s) for this batch.
 
-            # Then, we get the logits for the respective images we passed in.
-            # Clean img, neighbor of clean img, adv img, neighbor of adv img.
-            x_anchor_clean_logits_boundary = batch_size
+                # Squeeze to remove information about batch size.
+                x_anchor_clean_squeezed = torch.squeeze(x_anchor_clean, 0)
+                
+                # Load the adversarial image(s).
+                x_anchor_adv, y_anchor_adv, is_successful = fgsm(x_anchor_clean_squeezed, y_anchor_clean, model, epsilon, device)
+                
+                # Add the success to success_cnt.
+                success_cnt += is_successful
 
-            x_anchor_clean_logits = combined_logits[0:x_anchor_clean_logits_boundary]
-            x_neighbor_clean_logits = combined_logits[x_anchor_clean_logits_boundary:]
+                # Get the neighbors for the ADVERSARIAL image(s)
+                x_neighbor_adv = neighbor_generator.addNeighbor(x_anchor_adv)
 
-            # Calculate individual losses.
-            ce = criterion1(x_anchor_clean_logits, y_anchor_clean)
-            gr = grad_reg_lambda * criterion2(x_anchor_clean_logits.softmax(dim=-1), x_neighbor_clean_logits.softmax(dim=-1), x_anchor_clean, x_neighbor_clean)
+                # When doing adversarial training, we pass 4 things
+                # clean img, neighbor of clean img, adv img, neighbor of adv img.
+                combined_x = torch.cat((x_anchor_clean, x_neighbor_clean, x_anchor_adv, x_neighbor_adv), dim=0)
 
-        # Calcualte overall loss.
+                # Perform forward pass.
+                combined_logits = model(combined_x)
+
+                # Then, we get the logits for the respective images we passed in.
+                # clean img, neighbor of clean img, adv img, neighbor of adv img.
+                x_anchor_clean_logits_boundary = batch_size
+                x_neighbor_clean_logits_boundary = x_anchor_clean_logits_boundary + num_neighbor_per_anchor
+                x_anchor_adv_logits_boundary = x_neighbor_clean_logits_boundary + batch_size
+
+                x_anchor_clean_logits = combined_logits[0:x_anchor_clean_logits_boundary]
+                x_neighbor_clean_logits = combined_logits[x_anchor_clean_logits_boundary:x_neighbor_clean_logits_boundary]
+                x_anchor_adv_logits = combined_logits[x_neighbor_clean_logits_boundary:x_anchor_adv_logits_boundary]
+                x_neighbor_adv_logits = combined_logits[x_anchor_adv_logits_boundary:]
+
+                # Calculate individual losses.
+                ce = (criterion1(x_anchor_clean_logits, y_anchor_clean) + adv_ratio * criterion1(x_anchor_adv_logits, y_anchor_clean)) / (1.0 + adv_ratio)
+                gr1 = grad_reg_lambda * criterion2(x_anchor_clean_logits.softmax(dim=-1), x_neighbor_clean_logits.softmax(dim=-1), x_anchor_clean, x_neighbor_clean)
+                gr2 = grad_reg_lambda * criterion2(x_anchor_adv_logits.softmax(dim=-1), x_neighbor_adv_logits.softmax(dim=-1), x_anchor_adv, x_neighbor_adv)
+                gr = gr1 + gr2
+
+                # Clear up unused variables to reduce RAM usage.
+                del x_anchor_clean_squeezed, x_anchor_adv, x_anchor_adv_logits, x_neighbor_adv, x_neighbor_adv_logits, y_anchor_adv
+            elif jacobian:
+                # Jacobian Regularization requires gradients to be preserved for calculation of Jacobian loss.
+                x_anchor_clean.requires_grad = True
+                # Perform forward pass.
+                x_anchor_clean_logits = model(x_anchor_clean)
+
+                # Calculate losses based on Jacobian regularization.
+                ce = criterion1(x_anchor_clean_logits, y_anchor_clean)
+                gr = grad_reg_lambda * criterion2(x_anchor_clean, x_anchor_clean_logits)
+            else:
+                # Use our own regularization.
+                # Note that if no adversarial training occurs, then we would only be concerned with:
+                # clean img, neighbor of clean img.
+                combined_x = torch.cat((x_anchor_clean, x_neighbor_clean), dim=0)
+
+                # Perform forward pass.
+                combined_logits = model(combined_x)
+
+                # Then, we get the logits for the respective images we passed in.
+                # Clean img, neighbor of clean img, adv img, neighbor of adv img.
+                x_anchor_clean_logits_boundary = batch_size
+
+                x_anchor_clean_logits = combined_logits[0:x_anchor_clean_logits_boundary]
+                x_neighbor_clean_logits = combined_logits[x_anchor_clean_logits_boundary:]
+
+                # Calculate individual losses.
+                ce = criterion1(x_anchor_clean_logits, y_anchor_clean)
+                gr = grad_reg_lambda * criterion2(x_anchor_clean_logits.softmax(dim=-1), x_neighbor_clean_logits.softmax(dim=-1), x_anchor_clean, x_neighbor_clean)
+
+        # Calculate overall loss.
         ce_loss += ce.sum().item()
         gr_loss += gr.item()
         loss = ce + gr
 
-        # Backprop and update model's weight
-        loss.backward()
+        # Backprop and update model weights.
         optimizer.step()
         optimizer.zero_grad()
         scheduler.step()
@@ -353,15 +386,19 @@ for epoch in range(starting_epoch, num_epochs + 1):
         y_pred = x_anchor_clean_logits.softmax(dim=-1).argmax(-1)
         train_acc += torch.sum(y_anchor_clean == y_pred).cpu().item()
 
-    # Clear up unused variables to reduce RAM usage.
+     # Clear up unused variables to reduce RAM usage.
     if jacobian:
         del x_anchor_clean, x_anchor_clean_logits, y_anchor_clean
     else:
         del x_anchor_clean, x_anchor_clean_logits, x_neighbor_clean, x_neighbor_clean_logits, y_anchor_clean
-        
-    ce_loss /= num_labeled
+
+    if inject_noise:
+        ce_loss /= (num_labeled*2)
+        train_acc /= (num_labeled*2)
+    else:
+        ce_loss /= num_labeled
+        train_acc /= num_labeled
     gr_loss /= batchIdx
-    train_acc /= num_labeled
 
     # ---------------------------------------------------------------------------- #
     #                           PER EPOCH VALIDATION LOOP                          #

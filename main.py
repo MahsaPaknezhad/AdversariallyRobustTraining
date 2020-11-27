@@ -298,7 +298,6 @@ for epoch in range(starting_epoch, num_epochs + 1):
                 ce = criterion1(x_anchor_clean_logits, y_anchor_clean)
             else:
                 ce = torch.tensor([0.], device=device)
-
         else:
             x_neighbor_clean = neighbor_generator.addNeighbor(x_anchor_clean)
 
@@ -379,7 +378,7 @@ for epoch in range(starting_epoch, num_epochs + 1):
 
         # Backprop and update model weights.
         loss.backward()
-	optimizer.step()
+        optimizer.step()
         optimizer.zero_grad()
         scheduler.step()
         

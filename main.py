@@ -378,7 +378,8 @@ for epoch in range(starting_epoch, num_epochs + 1):
         loss = ce + gr
 
         # Backprop and update model weights.
-        optimizer.step()
+        loss.backward()
+	optimizer.step()
         optimizer.zero_grad()
         scheduler.step()
         

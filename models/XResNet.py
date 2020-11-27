@@ -107,7 +107,6 @@ class XResNet(nn.Module):
             self.neighbor_generator = NeighborGenerator(self.params.neighbor_noise_std, 1)
     
     def forward(self, x, unlabeled_mode = False):
-        import pdb
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.conv3(x)

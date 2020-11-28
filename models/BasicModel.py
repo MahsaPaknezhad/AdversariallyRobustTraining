@@ -38,8 +38,9 @@ class BasicModel(nn.Module): #LeNet
         if self.params.inject_noise:
             self.unlabeled_generator = UnlabeledGenerator(self.params.unlabeled_noise_std, 1)
             self.neighbor_generator = NeighborGenerator(self.params.neighbor_noise_std, 1)
+        self.extract_intermediate_outputs = hasattr(params, 'extract_intermediate_outputs')
 
-    def forward(self, x, unlabeled_mode = False):
+    def forward(self, x, unlabeled_mode=False):
         # (32, 32)
         x = self.conv1(x)
         # (28, 28)
@@ -60,6 +61,8 @@ class BasicModel(nn.Module): #LeNet
                 x[0] = self.unlabeled_generator.addUnlabeled(x[0])
             if not self.params.jacobian:
                 x = torch.cat((x[0], self.neighbor_generator.addNeighbor(x[1])), dim = 0)
+        elif not self.training and self.extract_intermediate_outputs:
+            return x
 
         x = x.view(x.size()[0], -1)
         # (400)

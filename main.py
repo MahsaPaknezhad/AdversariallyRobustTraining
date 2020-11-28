@@ -11,7 +11,6 @@ import json
 import numpy as np
 import re
 import torch.nn as nn
-import pdb
 
 from tqdm import trange
 from Optimizers import Optimizers
@@ -184,7 +183,7 @@ dataset_class = Dataset(param)
 num_labeled = x_train_array.shape[0]
 neighbor_generator = NeighborGenerator(neighbor_noise_std, num_neighbor_per_anchor)
 unlabeled_generator = UnlabeledGenerator(unlabeled_noise_std, num_unlabeled_per_labeled)
-datahandler = DataHandler(dataset_class, 'cpu') # Fixes mem leak but consider using CUDA in future
+datahandler = DataHandler(dataset_class, 'cpu')
 x_val, y_val = datahandler.loadValidation(x_val_array, y_val_array)
 del x_val_array, y_val_array
 
@@ -222,7 +221,7 @@ if resume:
 # ---------------------------------------------------------------------------- #
 #                                EPOCH TRAINING LOOP                           #
 # ---------------------------------------------------------------------------- #
-success(f'Starting{" adversarial" if adversarial else ""} training {f"with" if grad_reg_lambda > 0 else " without"} {"Jacobian" if jacobian else "Gradient"} regularization.')
+success(f'Starting{" adversarial" if adversarial else ""}{" intermediate noise injection" if inject_noise else ""} training {f"with" if grad_reg_lambda > 0 else " without"} {"Jacobian" if jacobian else "Gradient"} regularization.')
 
 for epoch in range(starting_epoch, num_epochs + 1):
 

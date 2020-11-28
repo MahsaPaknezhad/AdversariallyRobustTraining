@@ -26,6 +26,7 @@ class ResNet9(nn.Module):
         if self.params.inject_noise:
             self.unlabeled_generator = UnlabeledGenerator(self.params.unlabeled_noise_std, 1)
             self.neighbor_generator = NeighborGenerator(self.params.neighbor_noise_std, 1)
+        self.extract_intermediate_outputs = hasattr(params, 'extract_intermediate_outputs')
 
         if self.params.activation == 'relu':
             self.activation = nn.ReLU
@@ -113,6 +114,8 @@ class ResNet9(nn.Module):
             if not self.params.jacobian:
                 neighbor = self.neighbor_generator.addNeighbor(x[1]).reshape([1, 512, 1, 1])
                 x = torch.cat((x[0].reshape([1, 512, 1, 1]), neighbor), dim = 0)
+        elif not self.training and self.extract_intermediate_outputs:
+            return x
         
         x = x.view(-1, 512)
         x = self.fc(x)

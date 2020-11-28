@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on Thu May 28 13:59:00 2020
 
-@author: ngopc
-"""
 import torch
 from torch.utils.data import Dataset
 from PIL import Image
@@ -44,10 +40,12 @@ class DataHandler:
 
         epoch_dataset = CustomDataset(x_array, y_array, transform)
 
-        epoch_loader = torch.utils.data.DataLoader(epoch_dataset, batch_size=x_array.shape[0], shuffle=True, num_workers=4)
+        epoch_loader = torch.utils.data.DataLoader(epoch_dataset, batch_size=x_array.shape[0], shuffle=True, num_workers=4, pin_memory=True if self.device == 'cuda' else False)
 
         for data in epoch_loader:
             x_tensor, y_tensor = data
+            x_tensor = x_tensor.to(self.device)
+            y_tensor = y_tensor.to(self.device)
 
         return x_tensor, y_tensor
 

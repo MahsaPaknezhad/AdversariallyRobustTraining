@@ -125,6 +125,9 @@ class XResNet(nn.Module):
             if not self.params.jacobian:
                 neighbor = self.neighbor_generator.addNeighbor(x[1]).reshape([1, 512, 4, 4])
                 x = torch.cat((x[0].reshape([1, 512, 4, 4]), neighbor), dim = 0)
+        elif not self.training and 'extract_intermediate_outputs' in self.params:
+            if self.params.extract_intermediate_outputs:
+                return x
 
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)

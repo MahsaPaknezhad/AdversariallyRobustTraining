@@ -71,7 +71,7 @@ class DatasetImagenette(DatasetTemplate):
         for i in range(len(self.nameToClass)):
             self.classToName[list(self.nameToClass.values())[i]] = list(self.nameToClass.keys())[i]
     
-    def getTrainVal(self, fast_mode = True):
+    def getTrainVal(self, fast_mode = True, train_val_ratio=0.8):
         param = self.param
         size = param.imsize
 
@@ -101,8 +101,8 @@ class DatasetImagenette(DatasetTemplate):
                 idx = np.where(y == i)[0]
                 np.random.shuffle(idx)
                 
-                t_idx = idx[:int(idx.shape[0]*0.8)]
-                v_idx = idx[int(idx.shape[0]*0.8):]
+                t_idx = idx[:int(idx.shape[0]*train_val_ratio)]
+                v_idx = idx[int(idx.shape[0]*train_val_ratio):]
 
                 if param.num_train != -1 and param.num_val != -1:
 
@@ -145,7 +145,7 @@ class DatasetImagenette(DatasetTemplate):
                     x_val.append(im)
                     y_val.append(self.nameToID[label])
                     
-        success('Dataset preparation complete')
+        success('Dataset preparation complete.')
 
         x_train = np.asarray(x_train)
         y_train = np.asarray(y_train)

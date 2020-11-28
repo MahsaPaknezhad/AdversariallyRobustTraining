@@ -56,11 +56,13 @@ class BasicModel(nn.Module): #LeNet
         # (5, 5)
 
         # If it is specified in the params that we will inject noise in the intermediate layer, then we shall proceed to do so
-        if self.params.inject_noise:
+        if self.training and self.params.inject_noise:
             if unlabeled_mode:
-                x[0] = self.unlabeled_generator.addUnlabeled(x[0])
+                x[0], _ = self.unlabeled_generator.addUnlabeled(x[0])
+            original = x[0].reshape([1, 16, 5, 5])
             if not self.params.jacobian:
-                x = torch.cat((x[0], self.neighbor_generator.addNeighbor(x[1])), dim = 0)
+                neighbor = self.neighbor_generator.addNeighbor(x[1]).reshape([1, 16, 5, 5])
+                x = torch.cat((original, neighbor), dim = 0)
         elif not self.training and self.extract_intermediate_outputs:
             return x
 
@@ -79,7 +81,10 @@ class BasicModel(nn.Module): #LeNet
         x = self.fc3(x)
         # (10)
 
-        return x
-        
+        if self.training and self.params.inject_noise and not self.params.jacobian:
+            return x, original, neighbor
+        else:
+            return x
+
     def set_lambda(self, lambda_val):
         self.lambda_val = lambda_val

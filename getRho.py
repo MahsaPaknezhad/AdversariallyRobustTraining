@@ -107,6 +107,7 @@ for j, setting in enumerate(settings_list):
         for i in trange(test_size):
             # Get batch of image data and label data.
             x_sample = torch.squeeze(x_test_tensor[i], 0).to(device)
+            if dataset == 'MNIST': x_sample = x_sample.reshape([1, 32, 32])
             y_sample = torch.squeeze(y_test_tensor[i], 0).to(device)
 
             # Generate DeepFool perturbed image.

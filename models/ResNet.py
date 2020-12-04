@@ -23,9 +23,10 @@ class ResNet9(nn.Module):
 
         self.params = params
 
-        if self.params.inject_noise:
-            self.unlabeled_generator = UnlabeledGenerator(self.params.unlabeled_noise_std, 1)
-            self.neighbor_generator = NeighborGenerator(self.params.neighbor_noise_std, 1)
+        if 'inject_noise' in self.params:
+            if self.params.inject_noise:
+                self.unlabeled_generator = UnlabeledGenerator(self.params.unlabeled_noise_std, 1)
+                self.neighbor_generator = NeighborGenerator(self.params.neighbor_noise_std, 1)
         self.extract_intermediate_outputs = hasattr(params, 'extract_intermediate_outputs')
 
         if self.params.activation == 'relu':
@@ -107,22 +108,23 @@ class ResNet9(nn.Module):
         x = x + self.block3_2(x)
         x = F.max_pool2d(x, 8, 8)
         # If it is specified in the params that we will inject noise in the intermediate layer, then we shall proceed to do so
-        if self.training and self.params.inject_noise:
-            if unlabeled_mode:
-                x[0], _ = self.unlabeled_generator.addUnlabeled(x[0]) 
-            original = x[0].reshape([1, 512, 1, 1]).clone()
-            if not self.params.jacobian:
-                neighbor = self.neighbor_generator.addNeighbor(x[1]).reshape([1, 512, 1, 1])
-                x = torch.cat((x[0].reshape([1, 512, 1, 1]), neighbor), dim = 0)
-        elif not self.training and self.extract_intermediate_outputs:
-            return x
+        if 'inject_noise' in self.params:
+            if self.training and self.params.inject_noise:
+                if unlabeled_mode:
+                    x[0], _ = self.unlabeled_generator.addUnlabeled(x[0]) 
+                original = x[0].reshape([1, 512, 1, 1]).clone()
+                if not self.params.jacobian:
+                    neighbor = self.neighbor_generator.addNeighbor(x[1]).reshape([1, 512, 1, 1])
+                    x = torch.cat((x[0].reshape([1, 512, 1, 1]), neighbor), dim = 0)
+            elif not self.training and self.extract_intermediate_outputs:
+                return x
         
         x = x.view(-1, 512)
         x = self.fc(x)
-        if self.training and self.params.inject_noise and not self.params.jacobian:
-            return x, original, neighbor
-        else: 
-            return x
+        if 'inject_noise' in self.params:
+            if self.training and self.params.inject_noise and not self.params.jacobian: return x, original, neighbor
+            else: return x
+        else: return x
 
 class ResNet9Mod(nn.Module):
     def __init__(self, activation):

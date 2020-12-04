@@ -35,9 +35,10 @@ class BasicModel(nn.Module): #LeNet
             'tanh': F.tanh
         }
 
-        if self.params.inject_noise:
-            self.unlabeled_generator = UnlabeledGenerator(self.params.unlabeled_noise_std, 1)
-            self.neighbor_generator = NeighborGenerator(self.params.neighbor_noise_std, 1)
+        if 'inject_noise' in self.params:
+            if self.params.inject_noise:
+                self.unlabeled_generator = UnlabeledGenerator(self.params.unlabeled_noise_std, 1)
+                self.neighbor_generator = NeighborGenerator(self.params.neighbor_noise_std, 1)
         self.extract_intermediate_outputs = hasattr(params, 'extract_intermediate_outputs')
 
     def forward(self, x, unlabeled_mode=False):
@@ -56,15 +57,16 @@ class BasicModel(nn.Module): #LeNet
         # (5, 5)
 
         # If it is specified in the params that we will inject noise in the intermediate layer, then we shall proceed to do so
-        if self.training and self.params.inject_noise:
-            if unlabeled_mode:
-                x[0], _ = self.unlabeled_generator.addUnlabeled(x[0])
-            original = x[0].reshape([1, 16, 5, 5])
-            if not self.params.jacobian:
-                neighbor = self.neighbor_generator.addNeighbor(x[1]).reshape([1, 16, 5, 5])
-                x = torch.cat((original, neighbor), dim = 0)
-        elif not self.training and self.extract_intermediate_outputs:
-            return x
+        if 'inject_noise' in self.params:
+            if self.training and self.params.inject_noise:
+                if unlabeled_mode:
+                    x[0], _ = self.unlabeled_generator.addUnlabeled(x[0])
+                original = x[0].reshape([1, 16, 5, 5])
+                if not self.params.jacobian:
+                    neighbor = self.neighbor_generator.addNeighbor(x[1]).reshape([1, 16, 5, 5])
+                    x = torch.cat((original, neighbor), dim = 0)
+            elif not self.training and self.extract_intermediate_outputs:
+                return x
 
         x = x.view(x.size()[0], -1)
         # (400)
@@ -81,10 +83,10 @@ class BasicModel(nn.Module): #LeNet
         x = self.fc3(x)
         # (10)
 
-        if self.training and self.params.inject_noise and not self.params.jacobian:
-            return x, original, neighbor
-        else:
-            return x
+        if 'inject_noise' in self.params:
+            if self.training and self.params.inject_noise and not self.params.jacobian: return x, original, neighbor
+            else: return x
+        else: return x
 
     def set_lambda(self, lambda_val):
         self.lambda_val = lambda_val

@@ -102,9 +102,11 @@ class XResNet(nn.Module):
         )
     
         self.params = params
-        if self.params.inject_noise:
-            self.unlabeled_generator = UnlabeledGenerator(self.params.unlabeled_noise_std, 1)
-            self.neighbor_generator = NeighborGenerator(self.params.neighbor_noise_std, 1)
+        if 'inject_noise' in self.params:
+            if self.params.inject_noise:
+                self.unlabeled_generator = UnlabeledGenerator(self.params.unlabeled_noise_std, 1)
+                self.neighbor_generator = NeighborGenerator(self.params.neighbor_noise_std, 1)
+        self.extract_intermediate_outputs = hasattr(params, 'extract_intermediate_outputs')
     
     def forward(self, x, unlabeled_mode = False):
         x = self.conv1(x)
@@ -118,24 +120,24 @@ class XResNet(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
 
-        if self.training and self.params.inject_noise:
-            if unlabeled_mode:
-                x[0], _ = self.unlabeled_generator.addUnlabeled(x[0]) 
-            original = x[0].reshape([1, 512, 4, 4]).clone()
-            if not self.params.jacobian:
-                neighbor = self.neighbor_generator.addNeighbor(x[1]).reshape([1, 512, 4, 4])
-                x = torch.cat((x[0].reshape([1, 512, 4, 4]), neighbor), dim = 0)
-        elif not self.training and 'extract_intermediate_outputs' in self.params:
-            if self.params.extract_intermediate_outputs:
-                return x
+        if 'inject_noise' in self.params:
+            if self.training and self.params.inject_noise:
+                if unlabeled_mode:
+                    x[0], _ = self.unlabeled_generator.addUnlabeled(x[0])
+                original = x[0].reshape([1, 16, 5, 5])
+                if not self.params.jacobian:
+                    neighbor = self.neighbor_generator.addNeighbor(x[1]).reshape([1, 16, 5, 5])
+                    x = torch.cat((original, neighbor), dim = 0)
+        if not self.training and 'extract_intermediate_outputs' in self.params:
+            return x
 
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
         x = self.fc(x)
-        if self.training and self.params.inject_noise and not self.params.jacobian:
-            return x, original, neighbor
-        else: 
-            return x
+        if 'inject_noise' in self.params:
+            if self.training and self.params.inject_noise and not self.params.jacobian: return x, original, neighbor
+            else: return x
+        else: return x
 
     def _make_ds(self, block, planes, stride):
         downsample = None

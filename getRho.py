@@ -28,8 +28,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, choices=['MNIST', 'CIFAR10', 'Imagenette'], help='Dataset to use for this experiment')
 parser.add_argument('--data_dir', type=str, default='../data', help='Folder where the dataset is located')
 parser.add_argument('--output_dir', type=str, default='../output', help='Directory to output results to. This will also be the same place where the trained model files are read from')
-parser.add_argument('--settings_list', type=str, help='Semicolon separated string of settings to consider when performing this experiment')
-parser.add_argument('--seed_list', type=str, help='Semicolon separated string of seeds to consider when performing this experiment')
+parser.add_argument('--settings_list', type=str, help='Comma separated string of settings to consider when performing this experiment')
+parser.add_argument('--seed_list', type=str, help='Comma separated string of seeds to consider when performing this experiment')
 parser.add_argument('--imsize', type=int, help='Image size, set to 32 for MNIST and CIFAR10, set to 128 for Imagenette')
 # Model parameters.
 parser.add_argument('--model', type=str, help='Model type, set to basicmodel for MNIST, resnet9 for CIFAR10 and xresnet18 for Imagenette. Check LoadModel.py for the list of supported models.')
@@ -50,8 +50,8 @@ param = parser.parse_args()
 # Dataset parameters.
 dataset = param.dataset
 output_dir = param.output_dir
-settings_list = param.settings_list.split(';')
-seed_list = [f'Seed_{s}' for s in param.seed_list.split(';')]
+settings_list = param.settings_list.split(',')
+seed_list = [f'Seed_{s}' for s in param.seed_list.split(',')]
 # Model parameters.
 epoch = param.epoch
 # Adversarial attack parameters.

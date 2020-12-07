@@ -18,7 +18,6 @@ from tqdm import trange
 from DataHandler import DataHandler
 from Seed import getSeed
 from Logging import info, success
-from foolbox import PyTorchModel
 
 # ---------------------------------------------------------------------------- #
 #                                ARGUMENT PARSER                               #
@@ -100,7 +99,6 @@ for j, setting in enumerate(settings_list):
         # Load model.
         model_path = os.path.join(target_path, setting, seed_string, f'model_epoch={epoch}.pt')
         model.load_state_dict(torch.load(model_path)['model_state_dict'])
-        fmodel = PyTorchModel(model, bounds=(0, 1), device=device, preprocessing=dict(mean=dataset_class.mean, std=dataset_class.std, axis=-3))
         success(f'Successfully loaded model from {model_path}.')
 
         # Try to generate DeepFool adversarial images.
@@ -113,7 +111,7 @@ for j, setting in enumerate(settings_list):
             y_sample = torch.squeeze(y_test_tensor[i], 0).to(device)
 
             # Generate DeepFool perturbed image.
-            r, loop_i, label_orig, label_pert, pert_image = deepfool(x_sample, fmodel, max_iter=max_iter)
+            r, loop_i, label_orig, label_pert, pert_image = deepfool(x_sample, model, max_iter=max_iter)
 
             # The adversarial attack is deemed successful if the label changes.
             if label_orig != label_pert:

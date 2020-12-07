@@ -65,6 +65,7 @@ if param.time != -1:
     param.seed = getSeed(time = param.time)
 # Experiment setting parameters.
 settings_list = param.settings_list.split(',')
+experiment_seed = param.seed
 seed_list = [f'Seed_{s}' for s in param.seed_list.split(',')]
 device = param.device
 # Model parameters.
@@ -82,6 +83,8 @@ legend_labels = settings_list if param.legend_labels == '' else param.legend_lab
 
 target_path = os.path.join(output_dir, dataset)
 results_dir = os.path.join(target_path, 'Robust_Accuracy_Results', attack_method)
+if not os.path.exists(results_dir):
+    os.makedirs(results_dir)
 
 # Matplotlib parameters.
 rc_params = {'legend.fontsize': 'x-large',
@@ -91,6 +94,12 @@ rc_params = {'legend.fontsize': 'x-large',
           'xtick.labelsize': 'x-large',
           'ytick.labelsize': 'x-large'}
 plt.rcParams.update(rc_params)
+
+np.random.seed(experiment_seed)
+torch.manual_seed(experiment_seed)
+torch.backends.cudnn.enabled = True
+torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.deterministic = True
 
 # ---------------------------------------------------------------------------- #
 #                           INSTANTIATE DATASET CLASS                          #
@@ -117,21 +126,27 @@ y_test_tensor = y_test_tensor.to(device)
 #                              LOAD DATA IF EXISTS                             #
 # ---------------------------------------------------------------------------- #
 
-if os.path.exists(results_dir) and os.path.isfile(os.path.join(results_dir, 'proportions_and_epsilons.pkl')):
-    info(f'It seems you already have results logged in {results_dir}, loading them...')
-    with open(os.path.join(results_dir, 'proportions_and_epsilons.pkl'), 'rb') as f:
-        data = pickle.load(f)
-        proportions = data['proportions']
-        epsilons = data['epsilons']
-    clean_stage_df = pd.read_csv(os.path.join(results_dir, 'clean_stage.csv'))
-    robust_stage_df = pd.read_csv(os.path.join(results_dir, 'robust_stage.csv'))
-    success(f'Successfully loaded results from {results_dir}')
+# Create the data structures that will hold the results for graph plotting later
+clean_stage_df = pd.DataFrame(columns=['Setting', 'Seed', 'Correct Indices'])
+robust_stage_df = pd.DataFrame(columns=['Setting', 'Seed', 'Robust Accuracy'])
+proportions = []
+
+if os.path.exists(results_dir):
+    info(f'It seems you already have results logged in {results_dir}, loading what\'s there...')
+    if os.path.isfile(os.path.join(results_dir, 'proportions_and_epsilons.pkl')):
+        with open(os.path.join(results_dir, 'proportions_and_epsilons.pkl'), 'rb') as f:
+            data = pickle.load(f)
+            proportions = data['proportions']
+            epsilons = data['epsilons']
+        success('Loaded proportions and epsilons.')
+    if os.path.isfile(os.path.join(results_dir, 'clean_stage.csv')):
+        clean_stage_df = pd.read_csv(os.path.join(results_dir, 'clean_stage.csv'))
+        success('Loaded clean stage CSV.')
+    if os.path.isfile(os.path.join(results_dir, 'robust_stage.csv')):
+        robust_stage_df = pd.read_csv(os.path.join(results_dir, 'robust_stage.csv'))
+        success('Loaded robust stage CSV.')
 else:
     warn(f'No prior results found in {results_dir}, starting from scratch...')
-    # Create the data structures that will hold the results for graph plotting later
-    clean_stage_df = pd.DataFrame(columns=['Seed', 'Correct Indices'])
-    robust_stage_df = pd.DataFrame(columns=['Setting', 'Seed', 'Robust Accuracy'])
-    proportions = []
 
 # Instantiate model class
 model = dataset_class.getModel()
@@ -149,27 +164,25 @@ epsilons = np.arange(min_epsilon, max_epsilon, step_epsilon) / 255.
 #                               START EXPERIMENT                               #
 # ---------------------------------------------------------------------------- #
 
-for j, seed_string in enumerate(seed_list):
+for seed_string in seed_list:
 
     info(f'Processing {seed_string}')
 
-    epoch = epochs[j]
-    # Skip the clean accuracy computation stage if the results are already available
-    if clean_stage_df.empty or not (clean_stage_df['Seed'] == seed_string).any():
-        # Perform the clean accuracy computation stage
-        info('Clean Accuracy Stage')
+    # Perform the clean accuracy computation stage
+    info('Clean Accuracy Stage')
 
-        # This set will contain the indices of the images that all settings trained with this seed classified correctly.
-        correct_indices = set()
+    for j, setting in enumerate(settings_list):
+        
+        epoch = epochs[j]
 
-        for setting in settings_list:
-
+        if clean_stage_df.empty or not ((clean_stage_df['Setting'] == setting) & (clean_stage_df['Seed'] == seed_string)).any(): 
             info(f'Processing {setting}')
 
             # Load the model
             model_path = os.path.join(target_path, setting, seed_string, f'model_epoch={epoch}.pt')
             model.load_state_dict(torch.load(model_path)['model_state_dict'])
             model.eval().to(device)
+            fmodel = PyTorchModel(model, bounds=(0, 1), device=device, preprocessing=dict(mean=dataset_class.mean, std=dataset_class.std, axis=-3))
             success(f'Successfully loaded model file from {model_path}')
 
             # Perform the calculation of clean accuracy
@@ -181,34 +194,43 @@ for j, seed_string in enumerate(seed_list):
                 x_batch = x_test_tensor[start_batch:end_batch].to(device)
                 y_batch = y_test_tensor[start_batch:end_batch].to(device)
 
-                y_output_batch = model(x_batch).softmax(-1).argmax(-1)
+                y_output_batch = fmodel(x_batch).softmax(-1).argmax(-1)
                 y_output = torch.cat((y_output, y_output_batch))
             correct_index = torch.where(y_output == y_test_tensor)[0].cpu().numpy()
-            candidate_set = set(correct_index.tolist())
-            if len(correct_indices) == 0:
-                correct_indices = candidate_set
-            else:
-                correct_indices = correct_indices.intersection(candidate_set)
-
-        clean_stage_df = clean_stage_df.append({
-            'Seed': seed_string,
-            'Correct Indices': list(correct_indices)
-        }, ignore_index=True)
-
-    else:
-        warn(f'You already have clean accuracy results for {seed_string}, skipping...')
+            clean_stage_df = clean_stage_df.append({
+                'Setting': setting,
+                'Seed': seed_string,
+                'Correct Indices': list(correct_index)
+            }, ignore_index=True)
+        
+            # Log clean accuracy stage results
+            clean_stage_df.to_csv(os.path.join(results_dir, 'clean_stage.csv'), index=False)
+        else:
+            warn(f'You already have clean accuracy results for {setting}/{seed_string}, skipping...')
 
     # Perform the robust accuracy computation stage
     info('Robust Accuracy Stage')
 
+    # Calculate common set of images that the settings considered in this experiment classified correctly
+    correct_index = set()
     for setting in settings_list:
+        current_correct_index = clean_stage_df[(clean_stage_df['Setting'] == setting) & (clean_stage_df['Seed'] == seed_string)]['Correct Indices'].values[0]
+        if type(current_correct_index) is not type([]):
+            current_correct_index = ast.literal_eval(current_correct_index)
+        current_correct_index = set(current_correct_index)
+        if len(correct_index) == 0:
+            correct_index = current_correct_index
+        else:
+            correct_index = correct_index.intersection(current_correct_index)
+    correct_index = list(correct_index)
+
+    for j, setting in enumerate(settings_list):
+
+        epoch = epochs[j]
 
         info(f'Processing {setting}')
         if robust_stage_df.empty or not ((robust_stage_df['Setting'] == setting) & (robust_stage_df['Seed'] == seed_string)).any():
             # Select only the images which were classified correctly by the model
-            correct_index = clean_stage_df[clean_stage_df['Seed'] == seed_string]['Correct Indices'].values[0]
-            if type(correct_index) is not type([]):
-                correct_index = ast.literal_eval(correct_index)
             x_test_selected = x_test_tensor[correct_index]
             y_test_selected = y_test_tensor[correct_index]
             proportions.append(len(correct_index) / len(x_test_array) * 100)
@@ -228,11 +250,11 @@ for j, seed_string in enumerate(seed_list):
             # Perform the attack
             for batch_idx in trange(math.ceil(len(x_test_selected)/batch_size)):
                 start_batch = batch_idx * batch_size
-                end_batch = min((batch_idx+1)*batch_size, test_size)
+                end_batch = min((batch_idx+1)*batch_size, len(x_test_selected))
 
                 # Get batch of image data and label data.
-                x_batch = torch.squeeze(x_test_selected[start_batch:end_batch], 0).to(device)
-                y_batch = torch.squeeze(y_test_selected[start_batch:end_batch], 0).to(device)
+                x_batch = x_test_selected[start_batch:end_batch].to(device)
+                y_batch = y_test_selected[start_batch:end_batch].to(device)
 
                 # Generate perturbed image.
                 _, _, is_success = attack(fmodel, x_batch, y_batch, epsilons=epsilons)
@@ -244,7 +266,7 @@ for j, seed_string in enumerate(seed_list):
                 success_count += np.sum(is_success, axis=-1)
 
             # Compute robust accuracy.
-            robust_accuracy = 1 - ( (success_count * 1.0) / test_size)
+            robust_accuracy = 1 - ( (success_count * 1.0) / len(x_test_selected))
             success(str(robust_accuracy))
 
             # Log the values into pandas dataframe
@@ -260,9 +282,7 @@ for j, seed_string in enumerate(seed_list):
 
             info('Proceeding to save results.')
 
-            # Create results directory if it does not exist
-            if not os.path.exists(results_dir):
-                os.makedirs(results_dir)
+           
 
             # Pickle a dictionary of the proportions and epsilons
             with open(os.path.join(results_dir, f'proportions_and_epsilons.pkl'), 'wb') as f:
@@ -271,7 +291,7 @@ for j, seed_string in enumerate(seed_list):
                     'epsilons': epsilons
                 }, f)
 
-            clean_stage_df.to_csv(os.path.join(results_dir, 'clean_stage.csv'), index=False)
+            
             robust_stage_df.to_csv(os.path.join(results_dir, 'robust_stage.csv'), index=False)
 
             success(f'Results saved to {results_dir}.')
@@ -282,6 +302,9 @@ for j, seed_string in enumerate(seed_list):
 # ---------------------------------------------------------------------------- #
 #                                  PLOT GRAPH                                  #
 # ---------------------------------------------------------------------------- #
+
+pdb.set_trace()
+
 
 info('Plotting graph.')
 

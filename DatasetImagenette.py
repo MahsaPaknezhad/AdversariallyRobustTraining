@@ -169,7 +169,7 @@ class DatasetImagenette(DatasetTemplate):
         main_path = os.path.join(param.data_dir, 'imagenette')
         test_path = os.path.join(main_path, 'val') # 'Test' set is named 'val' 
         
-        info('Preparing dataset')
+        info('Preparing test split of dataset.')
 
         if fast_mode:
             try:
@@ -199,7 +199,7 @@ class DatasetImagenette(DatasetTemplate):
                     x_test.append(im)
                     y_test.append(self.nameToID[label])
             
-        success('Dataset preparation complete')
+        success('Dataset test split preparation complete.')
 
         x_test = np.asarray(x_test)
         y_test = np.asarray(y_test)

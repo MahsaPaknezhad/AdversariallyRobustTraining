@@ -51,6 +51,9 @@ parser.add_argument('--step_epsilon', type=float, help='Step value for perturbat
 parser.add_argument('--colors', type=str, help='Comma-separated list of color codes WITHOUT THE HEX SYMBOL to plot the curves. This runs in the same order as settings_list, seed_list and epochs.')
 parser.add_argument('--styles', type=str, help='Comma-separated list of matplotlib styles to plot the curves. This runs in the same order as the settings_list, seed_list and epochs.')
 parser.add_argument('--legend_labels', type=str, default='', help='Comma-seaprated list of labels to give the legend. This runs in the same order as your settings. Leaving this blank will assume that you want to use the setting name as the legend label.')
+parser.add_argument('--ymin', type=float, default=0.0, help='Specify the minimum value of the vertical axis to be displayed in the output graph.')
+parser.add_argument('--ymax', type=float, default=1.0, help='Specify the maximum value of the vertical axis to be displayed in the output graph.')
+parser.add_argument('--graph_name', type=str, default='graph', help='Specify the graph filename.')
 param = parser.parse_args()
 
 # ---------------------------------------------------------------------------- #
@@ -80,6 +83,9 @@ step_epsilon = param.step_epsilon
 colors = [f'#{c}' for c in param.colors.split(',')]
 styles = param.styles.split(',')
 legend_labels = settings_list if param.legend_labels == '' else param.legend_labels.split(',')
+ymin = param.ymin
+ymax = param.ymax
+graph_name = param.graph_name
 
 target_path = os.path.join(output_dir, dataset)
 results_dir = os.path.join(target_path, 'Robust_Accuracy_Results', attack_method)
@@ -133,12 +139,6 @@ proportions = []
 
 if os.path.exists(results_dir):
     info(f'It seems you already have results logged in {results_dir}, loading what\'s there...')
-    if os.path.isfile(os.path.join(results_dir, 'proportions_and_epsilons.pkl')):
-        with open(os.path.join(results_dir, 'proportions_and_epsilons.pkl'), 'rb') as f:
-            data = pickle.load(f)
-            proportions = data['proportions']
-            epsilons = data['epsilons']
-        success('Loaded proportions and epsilons.')
     if os.path.isfile(os.path.join(results_dir, 'clean_stage.csv')):
         clean_stage_df = pd.read_csv(os.path.join(results_dir, 'clean_stage.csv'))
         success('Loaded clean stage CSV.')
@@ -228,13 +228,14 @@ for seed_string in seed_list:
 
         epoch = epochs[j]
 
+        proportions.append(len(correct_index) / len(x_test_array) * 100)
+
         info(f'Processing {setting}')
         if robust_stage_df.empty or not ((robust_stage_df['Setting'] == setting) & (robust_stage_df['Seed'] == seed_string)).any():
             # Select only the images which were classified correctly by the model
             x_test_selected = x_test_tensor[correct_index]
             y_test_selected = y_test_tensor[correct_index]
-            proportions.append(len(correct_index) / len(x_test_array) * 100)
-
+            
             # Do a check that the number of selected images should be the same as the number of selected labels
             assert len(x_test_selected) == len(y_test_selected)
 
@@ -269,6 +270,10 @@ for seed_string in seed_list:
             robust_accuracy = 1 - ( (success_count * 1.0) / len(x_test_selected))
             success(str(robust_accuracy))
 
+            if os.path.isfile(os.path.join(results_dir, 'robust_stage.csv')):
+                robust_stage_df = pd.read_csv(os.path.join(results_dir, 'robust_stage.csv'))
+                success('Updated robust stage CSV to latest.')
+
             # Log the values into pandas dataframe
             robust_stage_df = robust_stage_df.append({
                 'Setting': setting,
@@ -282,16 +287,6 @@ for seed_string in seed_list:
 
             info('Proceeding to save results.')
 
-           
-
-            # Pickle a dictionary of the proportions and epsilons
-            with open(os.path.join(results_dir, f'proportions_and_epsilons.pkl'), 'wb') as f:
-                pickle.dump({
-                    'proportions': proportions,
-                    'epsilons': epsilons
-                }, f)
-
-            
             robust_stage_df.to_csv(os.path.join(results_dir, 'robust_stage.csv'), index=False)
 
             success(f'Results saved to {results_dir}.')
@@ -302,9 +297,6 @@ for seed_string in seed_list:
 # ---------------------------------------------------------------------------- #
 #                                  PLOT GRAPH                                  #
 # ---------------------------------------------------------------------------- #
-
-pdb.set_trace()
-
 
 info('Plotting graph.')
 
@@ -318,7 +310,10 @@ fig, ax = plt.subplots()
 for i, setting in enumerate(settings_list):
     robust_accuracies_array = np.zeros((len(seed_list), len(epsilons)))
     for j, seed in enumerate(seed_list):
-        robust_accuracies_array[j] = ast.literal_eval(robust_stage_df[(robust_stage_df['Setting'] == setting) & (robust_stage_df['Seed'] == seed)]['Robust Accuracy'].values[0])
+        temp = robust_stage_df[(robust_stage_df['Setting'] == setting) & (robust_stage_df['Seed'] == seed)]['Robust Accuracy'].values[0]
+        if type(temp) is not type([]):
+            temp = ast.literal_eval(temp)
+        robust_accuracies_array[j] = temp
     averaged_accuracies = robust_accuracies_array.mean(axis=0)
     ste = sem(averaged_accuracies)
     plt.plot(epsilons, averaged_accuracies, styles[i], color=colors[i], label=legend_labels[i])
@@ -327,7 +322,7 @@ for i, setting in enumerate(settings_list):
 ax.set_xticks(epsilons)
 plt.grid(True)
 plt.xticks(rotation=45)
-plt.ylim([0, 1])
+plt.ylim([ymin, ymax])
 
 labels = [f'{int(x*255)}' for x in epsilons]
 
@@ -340,7 +335,7 @@ plt.tight_layout()
 plt.title(r'{0:.2f}% '.format(mean_proportions) + u'\u00B1' + r' {0:.2f}% Correctly Labeled'.format(ste_proportions))
 plt.show()
 
-graph_path = os.path.join(results_dir, 'graph.png')
+graph_path = os.path.join(results_dir, f'{graph_name}.png')
 plt.savefig(graph_path, dpi=600, bbox_inches='tight')
 
 success(f'Graph saved to {graph_path}.')

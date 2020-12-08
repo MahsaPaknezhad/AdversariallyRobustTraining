@@ -133,7 +133,7 @@ y_test_tensor = y_test_tensor.to(device)
 # ---------------------------------------------------------------------------- #
 
 # Create the data structures that will hold the results for graph plotting later
-clean_stage_df = pd.DataFrame(columns=['Setting', 'Seed', 'Correct Indices'])
+clean_stage_df = pd.DataFrame(columns=['Setting', 'Seed', 'Clean Accuracy', 'Correct Indices'])
 robust_stage_df = pd.DataFrame(columns=['Setting', 'Seed', 'Robust Accuracy'])
 proportions = []
 
@@ -200,6 +200,7 @@ for seed_string in seed_list:
             clean_stage_df = clean_stage_df.append({
                 'Setting': setting,
                 'Seed': seed_string,
+                'Clean Accuracy': correct_index.shape[0] / x_test_tensor.shape[0],
                 'Correct Indices': list(correct_index)
             }, ignore_index=True)
         

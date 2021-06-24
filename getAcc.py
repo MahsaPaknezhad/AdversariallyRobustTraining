@@ -1,342 +1,314 @@
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+Created on Thu May 28 14:14:15 2020
 
-import os
+@author: amadeusaw
+"""
+
 import argparse
 import numpy as np
-import matplotlib.pyplot as plt
-import pandas as pd
-import pickle
-import torch
-import math
-import ast
-import pdb
+from tqdm import tqdm
 
-from tqdm import tqdm, trange
-from foolbox import attacks, PyTorchModel
+from FoolboxAttack import FoolboxAttack, AttackLogging
 from DataHandler import DataHandler
 from Seed import getSeed
-from DeepFool import deepfool
-from scipy.stats import sem
-from Logging import info, success, warn
 
-# ---------------------------------------------------------------------------- #
-#                                ARGUMENT PARSER                               #
-# ---------------------------------------------------------------------------- #
+import matplotlib.pyplot as plt
+import os
+from scipy import stats
 
-parser = argparse.ArgumentParser()
-# Dataset parameters.
-parser.add_argument('--dataset', type=str, choices=['MNIST', 'CIFAR10', 'Imagenette'], help='Dataset to be used for plotting of robust accuracy')
-parser.add_argument('--data_dir', type=str, default='../data', help='Directory to get dataset from')
-parser.add_argument('--output_dir', type=str, default='../output/', help='Directory to output results')
-parser.add_argument('--imsize', type=int, help='Image size, set to 32 for MNIST and CIFAR10, set to 128 for Imagenette')
-parser.add_argument('--seed', type=int, default=0, help='Seed to be used during experiment')
-parser.add_argument('--time', type=int, default=-1, help='Seed to set the seed to be used during training, not used by default')
-# Experiment setting parameters.
-parser.add_argument('--settings_list', type=str, help='Comma-separated list of settings to consider.')
-parser.add_argument('--seed_list', default='27432,30416,48563,51985,84216', type=str, help='Comma-separated list of seeds to consider.')
-parser.add_argument('--device', type=str, default='cuda', choices=['cuda', 'cpu'], help='Device to perform experiment on')
-# Model parameters.
-parser.add_argument('--model', help='Model type, set to basicmodel for MNIST, resnet9 for CIFAR10 and xresnet18 for Imagenette. Check LoadModel.py for the list of supported models.')
-parser.add_argument('--activation', help='Activation function for the model, set to sigmoid for MNIST, celu for CIFAR10 and mish for Imagenette')
-parser.add_argument('--epochs', type=str, help='Comma-separated list of epoch numbers of the model files to test, in the order of each setting respectively.')
-# Attack parameters.
-parser.add_argument('--attack_method', type=str, choices=['FGSM', 'PGD'], help='Select which attack to use.')
-parser.add_argument('--batch_size', type=int, default=32, help='Batch size to perform attack.')
-parser.add_argument('--min_epsilon', type=float, help='Starting value for perturbation magnitude. This should be before division by 255. Set to 12.75 for MNIST, and 0.0 for CIFAR10 and Imagenette.')
-parser.add_argument('--max_epsilon', type=float, help='Ending value for perturbation magnitude. This should be before division by 255. Set to 191.25 for MNIST, 16.0 for CIFAR10, and 20 for Imagenette.')
-parser.add_argument('--step_epsilon', type=float, help='Step value for perturbation magnitude. This should be before divison by 255. Set to 12.75 for MNIST, and 1.0 for CIAR10 and Imagenette.')
-# Graph plotting parameters.
-parser.add_argument('--colors', type=str, help='Comma-separated list of color codes WITHOUT THE HEX SYMBOL to plot the curves. This runs in the same order as settings_list, seed_list and epochs.')
-parser.add_argument('--styles', type=str, help='Comma-separated list of matplotlib styles to plot the curves. This runs in the same order as the settings_list, seed_list and epochs.')
-parser.add_argument('--legend_labels', type=str, default='', help='Comma-seaprated list of labels to give the legend. This runs in the same order as your settings. Leaving this blank will assume that you want to use the setting name as the legend label.')
-parser.add_argument('--ymin', type=float, default=0.0, help='Specify the minimum value of the vertical axis to be displayed in the output graph.')
-parser.add_argument('--ymax', type=float, default=1.0, help='Specify the maximum value of the vertical axis to be displayed in the output graph.')
-parser.add_argument('--graph_name', type=str, default='graph', help='Specify the graph filename.')
-param = parser.parse_args()
+'''
+The following directory structure must be present for code to run
+Legends: {X} means that X is a parameter to be passed in before running this code
+Usage instruction: To get this directory structure:
+    After completing training code, rename the "time" folder to the setting used 
+    For example, suppose 'time' folder is '05_06_2020-15_55_10'
+    Just rename this folder to  'Lambda=0', if this is the setting used for the experiment there
+    To check the setting, open the Results.json file in that 'time' folder
 
-# ---------------------------------------------------------------------------- #
-#                                    PARAMS                                    #
-# ---------------------------------------------------------------------------- #
+Required Directory Structure:
+{method}__
+        | {dataset}__
+                    | Seed A____
+                                | Setting 1_____
+                                                | model_epoch=10.pt
+                                                | model_epoch=20.pt
+                                                | ...
+                                                | model_epoch={epoch}.pt
+                                | Setting 2_____
+                                                | model_epoch=10.pt
+                                                | model_epoch=20.pt
+                                                | ...
+                                                | model_epoch={epoch}.pt
+                                | ...
+                                | Setting N_____
+                                                | model_epoch=10.pt
+                                                | model_epoch=20.pt
+                                                | ...
+                                                | model_epoch={epoch}.pt
+                 ___
+                    | Seed B____
+                                | Setting 1_____
+                                                | model_epoch=10.pt
+                                                | model_epoch=20.pt
+                                                | ...
+                                                | model_epoch={epoch}.pt
+                                | Setting 2_____
+                                                | model_epoch=10.pt
+                                                | model_epoch=20.pt
+                                                | ...
+                                                | model_epoch={epoch}.pt
+                                | ...
+                                | Setting N_____
+                                                | model_epoch=10.pt
+                                                | model_epoch=20.pt
+                                                | ...
+                                                | model_epoch={epoch}.pt
+                 ...
+                 ...
+                 ___
+                    | Seed Z____
+                                | Setting 1_____
+                                                | model_epoch=10.pt
+                                                | model_epoch=20.pt
+                                                | ...
+                                                | model_epoch={epoch}.pt
+                                | Setting 2_____
+                                                | model_epoch=10.pt
+                                                | model_epoch=20.pt
+                                                | ...
+                                                | model_epoch={epoch}.pt
+                                | ...
+                                | Setting 3_____
+                                                | model_epoch=10.pt
+                                                | model_epoch=20.pt
+                                                | ...
+                                                | model_epoch={epoch}.pt
+'''
 
-# Dataset parameters.
-dataset = param.dataset
-data_dir = param.data_dir
-output_dir = param.output_dir
-if param.time != -1:
-    param.seed = getSeed(time = param.time)
-# Experiment setting parameters.
-settings_list = param.settings_list.split(',')
-experiment_seed = param.seed
-seed_list = [f'Seed_{s}' for s in param.seed_list.split(',')]
-device = param.device
-# Model parameters.
-epochs = param.epochs.split(',')
-# Attack parameters.
-attack_method = param.attack_method
-batch_size = param.batch_size
-min_epsilon = param.min_epsilon
-max_epsilon = param.max_epsilon
-step_epsilon = param.step_epsilon
-# Graph plotting parameters.
-colors = [f'#{c}' for c in param.colors.split(',')]
-styles = param.styles.split(',')
-legend_labels = settings_list if param.legend_labels == '' else param.legend_labels.split(',')
-ymin = param.ymin
-ymax = param.ymax
-graph_name = param.graph_name
-
-target_path = os.path.join(output_dir, dataset)
-results_dir = os.path.join(target_path, 'Robust_Accuracy_Results', attack_method)
-if not os.path.exists(results_dir):
-    os.makedirs(results_dir)
-
-# Matplotlib parameters.
-rc_params = {'legend.fontsize': 'x-large',
-          'figure.figsize': (6, 6),
+params = {'legend.fontsize': 'x-large',
+          'figure.figsize': (5, 5),
           'axes.labelsize': 'x-large',
           'axes.titlesize': 'x-large',
           'xtick.labelsize': 'x-large',
           'ytick.labelsize': 'x-large'}
-plt.rcParams.update(rc_params)
+plt.rcParams.update(params)
+print(os.getcwd())
 
-np.random.seed(experiment_seed)
-torch.manual_seed(experiment_seed)
-torch.backends.cudnn.enabled = True
-torch.backends.cudnn.benchmark = True
-torch.backends.cudnn.deterministic = True
+parser = argparse.ArgumentParser()
+############################## PARSER ########################################parser = argparse.ArgumentParser()
+'''parser.add_argument('--dataset', default= 'Imagenette')
+parser.add_argument('--data_dir', default='../data', help = 'Folder where the dataset is located')
+parser.add_argument('--method', default='../output/Adversarial/Imagenette/Reg_vs_Adv&Reg/', help = "The premise to be used, for documentation purposes")
+parser.add_argument('--model', default='xresnet18')
+parser.add_argument('--epoch', default= 200, help = 'Weight of the model at that epoch to test')
+parser.add_argument('--activation', default='mish')
+parser.add_argument('--batch_size', type=int, default=16, help = 'batch size to do attack')
+parser.add_argument('--attack_method', default='fgsm', help = 'Either fgsm, pgd, deepfooll2 or deepfoollinf')
+parser.add_argument('--min_epsilon', type = int, default=0, help = 'An integer. This should be before division by 255.')
+parser.add_argument('--max_epsilon', type = int, default=20, help = 'An integer. This should be before division by 255.')
+parser.add_argument('--step_epsilon', type = int, default=1, help = 'An integer. This should be before division by 255.')
+parser.add_argument('--imsize', type=int, default=128, help = 'Only necessary if dataset is Imagenette')
+parser.add_argument('--seed', type=int, default=0, help = 'Seed to run experiment. Ignored if time != -1')
+parser.add_argument('--time', type=int, default=-1,   help = "`Seed` to generate actual seed to run experiment. Ignored if -1")
+parser.add_argument('--device', default = 'cuda')
+param = parser.parse_args()'''
+################################# PARSER #####################################
+'''parser = argparse.ArgumentParser()
+parser.add_argument('--dataset', default= 'CIFAR10')
+parser.add_argument('--data_dir', default='../data', help = 'Folder where the dataset is located')
+parser.add_argument('--method', default='Adversarial/CIFAR10/Epsilon_2&3&10_Files', help = "The premise to be used, for documentation purposes")
+parser.add_argument('--model', default='resnet9')
+parser.add_argument('--epoch', default= 200, help = 'Weight of the model at that epoch to test')
+parser.add_argument('--activation', default='celu')
+parser.add_argument('--batch_size', type=int, default=32, help = 'batch size to do attack')
+parser.add_argument('--attack_method', default='fgsm', help = 'Either fgsm, pgd, deepfooll2 or deepfoollinf')
+parser.add_argument('--min_epsilon', type = int, default=0, help = 'An integer. This should be before division by 255.')
+parser.add_argument('--max_epsilon', type = int, default=16, help = 'An integer. This should be before division by 255.')
+parser.add_argument('--step_epsilon', type = int, default=1, help = 'An integer. This should be before division by 255.')
+parser.add_argument('--imsize', type=int, default=128, help = 'Only necessary if dataset is Imagenette')
+parser.add_argument('--seed', type=int, default=0, help = 'Seed to run experiment. Ignored if time != -1')
+parser.add_argument('--time', type=int, default=-1, help = "`Seed` to generate actual seed to run experiment. Ignored if -1")
+parser.add_argument('--device', default = 'cuda')
+param = parser.parse_args()'''
+############################### PARAMETERS ###################################
+parser = argparse.ArgumentParser()
+parser.add_argument('--dataset', default= 'MNIST')
+parser.add_argument('--data_dir', default='../data', help = 'Folder where the dataset is located')
+parser.add_argument('--method', default='NoDefence', help = "The premise to be used, for documentation purposes")
+parser.add_argument('--model', default='basicmodel')
+parser.add_argument('--epoch', default= 400, help = 'Weight of the model at that epoch to test')
+parser.add_argument('--activation', default='sigmoid')
+parser.add_argument('--batch_size', type=int, default=32, help = 'batch size to do attack')
+parser.add_argument('--attack_method', default='deepfoollinf', help = 'Either fgsm, pgd, deepfooll2 or deepfoollinf')
+parser.add_argument('--min_epsilon', type = int, default=0, help = 'An integer. This should be before division by 255.')
+parser.add_argument('--max_epsilon', type = int, default=20, help = 'An integer. This should be before division by 255.')
+parser.add_argument('--step_epsilon', type = int, default=1, help = 'An integer. This should be before division by 255.')
+parser.add_argument('--imsize', type=int, default=128, help = 'Only necessary if dataset is Imagenette')
+parser.add_argument('--seed', type=int, default=0, help = 'Seed to run experiment. Ignored if time != -1')
+parser.add_argument('--time', type=int, default=-1, help = "`Seed` to generate actual seed to run experiment. Ignored if -1")
+parser.add_argument('--device', default = 'cuda')
+param = parser.parse_args()
+################################# PARSER #####################################
+'''parser = argparse.ArgumentParser()
+parser.add_argument('--dataset', default= 'SVHN')
+parser.add_argument('--data_dir', default='../data/SVHN', help = 'Folder where the dataset is located')
+parser.add_argument('--method', default='SVHN/Premise2/', help = "The premise to be used, for documentation purposes")
+parser.add_argument('--model', default='svhn_mod')
+parser.add_argument('--epoch', default= 200, help = 'Weight of the model at that epoch to test')
+parser.add_argument('--activation', default='relu')
+parser.add_argument('--batch_size', type=int, default=32, help = 'batch size to do attack')
+parser.add_argument('--attack_method', default='fgsm', help = 'Either fgsm or pgd')
+parser.add_argument('--min_epsilon', type = int, default=0, help = 'An integer. This should be before division by 255.')
+parser.add_argument('--max_epsilon', type = int, default=16, help = 'An integer. This should be before division by 255.')
+parser.add_argument('--step_epsilon', type = int, default=1, help = 'An integer. This should be before division by 255.')
+parser.add_argument('--imsize', type=int, default=128, help = 'Only necessary if dataset is Imagenette')
+parser.add_argument('--seed', type=int, default=0, help = 'Seed to run experiment. Ignored if time != -1')
+parser.add_argument('--time', type=int, default=-1, help = "`Seed` to generate actual seed to run experiment. Ignored if -1")
+parser.add_argument('--device', default = 'cuda')
+param = parser.parse_args()'''
 
-# ---------------------------------------------------------------------------- #
-#                           INSTANTIATE DATASET CLASS                          #
-# ---------------------------------------------------------------------------- #
+if param.time != -1:
+    param.seed = getSeed(time = param.time)
+device = param.device
+batch_size = param.batch_size
 
-if dataset == 'MNIST':
-    from DatasetMNIST import DatasetMNIST as Dataset
-elif dataset == 'CIFAR10':
-    from DatasetCIFAR10 import DatasetCIFAR10 as Dataset
-elif dataset == 'Imagenette':
+dataset = param.dataset
+
+epoch = param.epoch
+attack_method = param.attack_method
+min_epsilon = param.min_epsilon
+max_epsilon = param.max_epsilon
+step_epsilon = param.step_epsilon
+
+method = param.method
+target_path = os.path.join('../output',method)
+############################# PARAMETERS #####################################
+
+
+############################# Initiate Class #################################
+if dataset == "MNIST":
+    from DatasetMnist import DatasetMnist as Dataset
+elif dataset == "CIFAR10":
+    from DatasetCifar import DatasetCifar as Dataset
+elif dataset == "Imagenette":
     from DatasetImagenette import DatasetImagenette as Dataset
+elif dataset == "SVHN":
+    from DatasetSvhn2 import DatasetSvhn as Dataset
 
 dataset_class = Dataset(param)
 
 x_test_array, y_test_array = dataset_class.getTest()
 datahandler= DataHandler(dataset_class, device)
 x_test_tensor, y_test_tensor = datahandler.loadTest(x_test_array, y_test_array)
-test_size = len(x_test_tensor)
 
 x_test_tensor = x_test_tensor.to(device)
 y_test_tensor = y_test_tensor.to(device)
 
-# ---------------------------------------------------------------------------- #
-#                              LOAD DATA IF EXISTS                             #
-# ---------------------------------------------------------------------------- #
+filename_list = os.listdir(target_path)
+seed_list = []
+for filename in filename_list:
+    if os.path.isfile(os.path.join(target_path, filename)):
+        continue
+    else:
+        seed_list.append(filename)
 
-# Create the data structures that will hold the results for graph plotting later
-clean_stage_df = pd.DataFrame(columns=['Setting', 'Seed', 'Clean Accuracy', 'Correct Indices'])
-robust_stage_df = pd.DataFrame(columns=['Setting', 'Seed', 'Robust Accuracy'])
-proportions = []
+#seed_list = [seed_list[0]]
 
-if os.path.exists(results_dir):
-    info(f'It seems you already have results logged in {results_dir}, loading what\'s there...')
-    if os.path.isfile(os.path.join(results_dir, 'clean_stage.csv')):
-        clean_stage_df = pd.read_csv(os.path.join(results_dir, 'clean_stage.csv'))
-        success('Loaded clean stage CSV.')
-    if os.path.isfile(os.path.join(results_dir, 'robust_stage.csv')):
-        robust_stage_df = pd.read_csv(os.path.join(results_dir, 'robust_stage.csv'))
-        success('Loaded robust stage CSV.')
-else:
-    warn(f'No prior results found in {results_dir}, starting from scratch...')
+setting_list = os.listdir(os.path.join(target_path, seed_list[0]))
+#for i in range(len(setting_list)): setting_list[i] = int(setting_list[i])
+#setting_list.sort()
+model_class = dataset_class.getModel()
 
-# Instantiate model class
-model = dataset_class.getModel()
-
-# Instantiate attack method
-if attack_method == 'FGSM':
-    attack = attacks.FGSM()
-elif attack_method == 'PGD':
-    attack = attacks.PGD()
-
-# Instantiate epsilons array
 epsilons = np.arange(min_epsilon, max_epsilon, step_epsilon) / 255.
 
-# ---------------------------------------------------------------------------- #
-#                               START EXPERIMENT                               #
-# ---------------------------------------------------------------------------- #
+numSeeds = len(seed_list)
+numEpsilons = len(epsilons)
+numModels = len(setting_list)
 
-for seed_string in seed_list:
+clean_acc_array = np.zeros((numSeeds, numModels))
+robust_acc_array = np.zeros((numSeeds, numModels, numEpsilons))
+fa = FoolboxAttack(batch_size, device, dataset_class.mean, dataset_class.std, attack_method)
+proportions = []
 
-    info(f'Processing {seed_string}')
+for i, seed in enumerate(tqdm(seed_list)):
+    logs = AttackLogging(numEpsilons)
+    current_path = os.path.join(target_path, seed)
 
-    # Perform the clean accuracy computation stage
-    info('Clean Accuracy Stage')
+    for setting_name in setting_list:
+        currPath = os.path.join(current_path, str(setting_name))
+        model_name = 'model_epoch={}.pt'.format(epoch)
+        fmodel = fa.FoolboxModel(model_class, model_name, currPath)
+        clean_acc, correct_idx = fa.getClean(fmodel, x_test_tensor, y_test_tensor)
+        print(currPath + ' ' + str(clean_acc))
+        logs.logClean(str(setting_name), clean_acc, correct_idx)
 
-    for j, setting in enumerate(settings_list):
-        
-        epoch = epochs[j]
 
-        if clean_stage_df.empty or not ((clean_stage_df['Setting'] == setting) & (clean_stage_df['Seed'] == seed_string)).any(): 
-            info(f'Processing {setting}')
+    x_test_selected = x_test_tensor[logs.correct_index]
+    y_test_selected = y_test_tensor[logs.correct_index]
+    proportions.append(len(logs.correct_index) / len(x_test_array) * 100)
 
-            # Load the model
-            model_path = os.path.join(target_path, setting, seed_string, f'model_epoch={epoch}.pt')
-            model.load_state_dict(torch.load(model_path)['model_state_dict'])
-            model.eval().to(device)
-            fmodel = PyTorchModel(model, bounds=(0, 1), device=device, preprocessing=dict(mean=dataset_class.mean, std=dataset_class.std, axis=-3))
-            success(f'Successfully loaded model file from {model_path}')
+    assert len(x_test_selected) == len(y_test_selected)
 
-            # Perform the calculation of clean accuracy
-            y_output = torch.tensor([], device=device, dtype=torch.long)
-            for batchIdx in trange(math.ceil(test_size / batch_size)):
-                start_batch = batchIdx * batch_size
-                end_batch = min((batchIdx+1)* batch_size, test_size)
+    for setting_name in setting_list:
+        currPath = os.path.join(current_path, str(setting_name))
+        model_name = 'model_epoch={}.pt'.format(epoch)
+        fmodel = fa.FoolboxModel(model_class, model_name, currPath)
+        robust_acc = fa.getRobust(fmodel, x_test_selected, y_test_selected, epsilons)
+        logs.logRobust(setting_name, robust_acc)
 
-                x_batch = x_test_tensor[start_batch:end_batch].to(device)
-                y_batch = y_test_tensor[start_batch:end_batch].to(device)
 
-                y_output_batch = fmodel(x_batch).softmax(-1).argmax(-1)
-                y_output = torch.cat((y_output, y_output_batch))
-            correct_index = torch.where(y_output == y_test_tensor)[0].cpu().numpy()
-            clean_stage_df = clean_stage_df.append({
-                'Setting': setting,
-                'Seed': seed_string,
-                'Clean Accuracy': correct_index.shape[0] / x_test_tensor.shape[0],
-                'Correct Indices': list(correct_index)
-            }, ignore_index=True)
-        
-            # Log clean accuracy stage results
-            clean_stage_df.to_csv(os.path.join(results_dir, 'clean_stage.csv'), index=False)
-        else:
-            warn(f'You already have clean accuracy results for {setting}/{seed_string}, skipping...')
+    logs.saveLogs(seed, target_path)
+    clean_acc_array[i] = np.array([logs.clean[str(setting)] for setting in setting_list])
+    robust_acc_array[i] = logs.robust[1:]
 
-    # Perform the robust accuracy computation stage
-    info('Robust Accuracy Stage')
 
-    # Calculate common set of images that the settings considered in this experiment classified correctly
-    correct_index = set()
-    for setting in settings_list:
-        current_correct_index = clean_stage_df[(clean_stage_df['Setting'] == setting) & (clean_stage_df['Seed'] == seed_string)]['Correct Indices'].values[0]
-        if type(current_correct_index) is not type([]):
-            current_correct_index = ast.literal_eval(current_correct_index)
-        current_correct_index = set(current_correct_index)
-        if len(correct_index) == 0:
-            correct_index = current_correct_index
-        else:
-            correct_index = correct_index.intersection(current_correct_index)
-    correct_index = list(correct_index)
-
-    for j, setting in enumerate(settings_list):
-
-        epoch = epochs[j]
-
-        proportions.append(len(correct_index) / len(x_test_array) * 100)
-
-        info(f'Processing {setting}')
-        if robust_stage_df.empty or not ((robust_stage_df['Setting'] == setting) & (robust_stage_df['Seed'] == seed_string)).any():
-            # Select only the images which were classified correctly by the model
-            x_test_selected = x_test_tensor[correct_index]
-            y_test_selected = y_test_tensor[correct_index]
-            
-            # Do a check that the number of selected images should be the same as the number of selected labels
-            assert len(x_test_selected) == len(y_test_selected)
-
-            # Load the model
-            model_path = os.path.join(target_path, setting, seed_string, f'model_epoch={epoch}.pt')
-            model.load_state_dict(torch.load(model_path)['model_state_dict'])
-            model.eval().to(device)
-            fmodel = PyTorchModel(model, bounds=(0, 1), device=device, preprocessing=dict(mean=dataset_class.mean, std=dataset_class.std, axis=-3))
-            success(f'Successfully loaded model file from {model_path}')
-
-            success_count = np.zeros(len(epsilons))
-
-            # Perform the attack
-            for batch_idx in trange(math.ceil(len(x_test_selected)/batch_size)):
-                start_batch = batch_idx * batch_size
-                end_batch = min((batch_idx+1)*batch_size, len(x_test_selected))
-
-                # Get batch of image data and label data.
-                x_batch = x_test_selected[start_batch:end_batch].to(device)
-                y_batch = y_test_selected[start_batch:end_batch].to(device)
-
-                # Generate perturbed image.
-                _, _, is_success = attack(fmodel, x_batch, y_batch, epsilons=epsilons)
-                is_success = is_success.cpu().numpy()
-
-                assert is_success.shape == (len(epsilons), len(x_batch))
-                assert is_success.dtype == np.bool
-
-                success_count += np.sum(is_success, axis=-1)
-
-            # Compute robust accuracy.
-            robust_accuracy = 1 - ( (success_count * 1.0) / len(x_test_selected))
-            success(str(robust_accuracy))
-
-            if os.path.isfile(os.path.join(results_dir, 'robust_stage.csv')):
-                robust_stage_df = pd.read_csv(os.path.join(results_dir, 'robust_stage.csv'))
-                success('Updated robust stage CSV to latest.')
-
-            # Log the values into pandas dataframe
-            robust_stage_df = robust_stage_df.append({
-                'Setting': setting,
-                'Seed': seed_string,
-                'Robust Accuracy': robust_accuracy.tolist()
-            }, ignore_index=True)
-
-            # ---------------------------------------------------------------------------- #
-            #                              LOG & SAVE PROGRESS                             #
-            # ---------------------------------------------------------------------------- #
-
-            info('Proceeding to save results.')
-
-            robust_stage_df.to_csv(os.path.join(results_dir, 'robust_stage.csv'), index=False)
-
-            success(f'Results saved to {results_dir}.')
-        
-        else:
-            warn(f'You already have robust accuracy results for {setting}/{seed_string}, skipping...')
-
-# ---------------------------------------------------------------------------- #
-#                                  PLOT GRAPH                                  #
-# ---------------------------------------------------------------------------- #
-
-info('Plotting graph.')
-
-# Compute proportions
 proportions = np.array(proportions).flatten()
 mean_proportions = np.mean(proportions, axis=0)
-ste_proportions = sem(proportions, axis=0)
+ste_proportions = stats.sem(proportions, axis=0)
 
-# Create the actual graph. Every curve represents the aggregated results of 5 seeds for 1 particular setting.
-fig, ax = plt.subplots()
-for i, setting in enumerate(settings_list):
-    robust_accuracies_array = np.zeros((len(seed_list), len(epsilons)))
-    for j, seed in enumerate(seed_list):
-        temp = robust_stage_df[(robust_stage_df['Setting'] == setting) & (robust_stage_df['Seed'] == seed)]['Robust Accuracy'].values[0]
-        if type(temp) is not type([]):
-            temp = ast.literal_eval(temp)
-        robust_accuracies_array[j] = temp
-    averaged_accuracies = robust_accuracies_array.mean(axis=0)
-    ste = sem(averaged_accuracies)
-    plt.plot(epsilons, averaged_accuracies, styles[i], color=colors[i], label=legend_labels[i])
-    plt.fill_between(epsilons, averaged_accuracies - ste, averaged_accuracies + ste, alpha=0.5, edgecolor=colors[i], facecolor=colors[i])
+mean_clean_acc = np.mean(clean_acc_array, axis = 0)
+ste_clean_acc = stats.sem(clean_acc_array, axis = 0)
+
+mean_robust_acc = np.mean(robust_acc_array, axis = 0)
+ste_robust_acc =  stats.sem(robust_acc_array, axis = 0)
+
+
+
+colors = ['seagreen', '#3498DB', '#FF5733', '#8E44AD', '#FFC300', '#C70039', '#DAF7A6', '#34495E']
+style = ['-^', '-^', '-^', '-^', '-^', '-^']
+#colors = ['seagreen', 'seagreen', '#3498DB',  '#3498DB',  '#FF5733', '#FF5733', '#8E44AD', '#8E44AD']
+#style = ['-^', '--^', '-^', '--^', '-^', '--^']
+legend= '$N_u = %d$'
+
+fig, ax = plt.subplots(figsize = (10, 6))
+for i, setting in enumerate(setting_list):
+    plt.plot(epsilons, mean_robust_acc[i], style[i], color = colors[i], label=setting)
+    plt.fill_between(epsilons, mean_robust_acc[i] - ste_robust_acc[i], mean_robust_acc[i] + ste_robust_acc[i],
+                            alpha = 0.5, edgecolor = colors[i], facecolor = colors[i])
 
 ax.set_xticks(epsilons)
 plt.grid(True)
 plt.xticks(rotation=45)
-plt.ylim([ymin, ymax])
+plt.ylim([0, 1])
 
-labels = [f'{int(x*255)}' for x in epsilons]
+np.savez(os.path.join(target_path,'{}_{}.npz'.format(dataset, attack_method)),
+              setting_list = setting_list,
+              epsilons=epsilons,mean_robust_acc=mean_robust_acc,
+              ste_robust_acc=ste_robust_acc, mean_proportions=mean_proportions,
+              ste_proportions=ste_proportions)
+
+
+#labels = ["{}/255".format(int(255*x)) for x in epsilons]
+labels = ["%.03f" % x for x in epsilons]
 
 ax.set_xticklabels(labels)
 
-plt.legend(loc='lower left')
-plt.xlabel('Epsilons')
-plt.ylabel('Robust Accuracy')
+plt.legend(loc='upper right')
+plt.xlabel('epsilons')
+plt.ylabel('Robust accuracy')
 plt.tight_layout()
-plt.title(r'{0:.2f}% '.format(mean_proportions) + u'\u00B1' + r' {0:.2f}% Correctly Labeled'.format(ste_proportions))
+plt.title(r"{0:.2f}% ".format(mean_proportions) + u"\u00B1" + r" {0:.2f}% Correctly Labeled".format(ste_proportions))
 plt.show()
-
-graph_path = os.path.join(results_dir, f'{graph_name}.png')
-plt.savefig(graph_path, dpi=600, bbox_inches='tight')
-
-success(f'Graph saved to {graph_path}.')
+plt.savefig(os.path.join(target_path, '{}-5runs.png'.format(attack_method.upper())), dpi=600, bbox_inches='tight')

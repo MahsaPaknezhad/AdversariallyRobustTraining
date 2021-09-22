@@ -19,7 +19,7 @@ from LossFunction import CELoss, GRLoss
 from DataHandler import DataHandler
 from Seed import getSeed
 from Logging import Logging, info, success, warn
-from LRSchedulers import LinearCosineLR
+from LRSchedulers import LRScheduler
 from FGSM import fgsm
 from jacobian import JacobianReg
 
@@ -29,35 +29,35 @@ from jacobian import JacobianReg
 
 parser = argparse.ArgumentParser()
 # Resume parameters.
-parser.add_argument('--resume', type=int, help='Whether to resume training or not')
-parser.add_argument('--resume_epoch', type=int, help='Epoch to resume training from, set to -1 to resume from latest epoch')
+parser.add_argument('--resume', type=int, default=0, help='Whether to resume training or not')
+parser.add_argument('--resume_epoch', type=int, default=-1, help='Epoch to resume training from, set to -1 to resume from latest epoch')
 # Dataset parameters.
-parser.add_argument('--dataset', type=str, choices=['MNIST', 'CIFAR10', 'Imagenette'], help='Dataset to be used for training')
-parser.add_argument('--setting', default='',type=str, help='Name of your setting directory, leave blank for an automatically generated setting name that includes experiment parameters.')
+parser.add_argument('--dataset', type=str, default = 'Imagenette', choices=['MNIST', 'CIFAR10', 'Imagenette'], help='Dataset to be used for training')
+parser.add_argument('--setting', default='imagenette_jacobian',type=str, help='Name of your setting directory, leave blank for an automatically generated setting name that includes experiment parameters.')
 parser.add_argument('--data_dir', type=str, default='../data', help='Directory to download dataset to')
 parser.add_argument('--output_dir', type=str, default='../output/', help='Directory to output results')
 parser.add_argument('--num_class', type=int, default=10, help = 'Number of classes in the dataset')
-parser.add_argument('--num_train', type=int, default=128, help='Number of train images per class, set to -1 to use full dataset')
-parser.add_argument('--num_val', type=int, default=200, help='Number of validation images per class, set to -1 to use full dataset')
-parser.add_argument('--imsize', type=int, help='Image size, set to 32 for MNIST and CIFAR10, set to 128 for Imagenette')
-parser.add_argument('--seed', type=int, help='Seed to be used during training, choose from 27432, 30416, 48563, 51985 or 84216 to reproduce results in the paper')
+parser.add_argument('--num_train', type=int, default=-1, help='Number of train images per class, set to -1 to use full dataset')
+parser.add_argument('--num_val', type=int, default=-1, help='Number of validation images per class, set to -1 to use full dataset')
+parser.add_argument('--imsize', type=int, default=128, help='Image size, set to 32 for MNIST and CIFAR10, set to 128 for Imagenette')
+parser.add_argument('--seed', type=int, default=27432, help='Seed to be used during training, choose from 27432, 30416, 48563, 51985 or 84216 to reproduce results in the paper')
 parser.add_argument('--time', type=int, default=-1, help='Seed to set the seed to be used during training, not used by default')
 # Jacobian parameters.
-parser.add_argument('--jacobian', type=int, default=0, help='Whether to use jacobian regularization or not.')
+parser.add_argument('--jacobian', type=int, default=1, help='Whether to use jacobian regularization or not.')
 # Gradient regularization parameters. 
-parser.add_argument('--grad_reg_lambda', type=float, default=0.0, help='Lambda for gradient regularization, set to 10,000 for MNIST, CIFAR10 and Imagenette, set to 1,000,000 for Imagenette when doing both adversarial training and gradient regularization')
+parser.add_argument('--grad_reg_lambda', type=float, default=10000, help='Lambda for gradient regularization, set to 10,000 for MNIST, CIFAR10 and Imagenette, set to 1,000,000 for Imagenette when doing both adversarial training and gradient regularization')
 parser.add_argument('--num_unlabeled_per_labeled', type=int, default=0, help='Number of unlabeled points to be make per labeled point')
-parser.add_argument('--unlabeled_noise_std', type=float, help='Standard deviation to make unlabeled points, set to 0.016 for MNIST, 0.23769 for CIFAR10 and 0.138687 for Imagenette')
-parser.add_argument('--num_neighbor_per_anchor', type=int, default=1, help='Number of neighbor points to be make per anchor point')
-parser.add_argument('--neighbor_noise_std', type=float, default=0.002, help='Standard deviation to make neighbors, set to 0.002 for MNIST, 0.023769 for CIFRAR10 and 0.0138687 for Imagenette')
+parser.add_argument('--unlabeled_noise_std', type=float, default=0, help='Standard deviation to make unlabeled points, set to 0.016 for MNIST, 0.23769 for CIFAR10 and 0.138687 for Imagenette')
+parser.add_argument('--num_neighbor_per_anchor', type=int, default=0, help='Number of neighbor points to be make per anchor point')
+parser.add_argument('--neighbor_noise_std', type=float, default=0, help='Standard deviation to make neighbors, set to 0.002 for MNIST, 0.023769 for CIFRAR10 and 0.0138687 for Imagenette')
 parser.add_argument('--inject_noise', type=int, default=0, help='Inject noise in the middle of the network')
 # Adversarial training parameters.
 parser.add_argument('--adversarial', type=int, default=0, help='Whether to perform adversarial training or not')
 parser.add_argument('--epsilon', type=float, default=0.1, help='Epsilon to use during the FGSM attack, only used if adversarial=1')
 parser.add_argument('--adv_ratio', type=float, default=0.3, help='The weight that is used in the calculation of the weighted average of clean image loss and perturbed image loss')
 # Training parameters.
-parser.add_argument('--model', help='Model type, set to basicmodel for MNIST, resnet9 for CIFAR10 and xresnet18 for Imagenette. Check LoadModel.py for the list of supported models.')
-parser.add_argument('--activation', help='Activation function for the model, set to sigmoid for MNIST, celu for CIFAR10 and mish for Imagenette')
+parser.add_argument('--model', type=str, default='xresnet18', help='Model type, set to basicmodel for MNIST, resnet9 for CIFAR10 and xresnet18 for Imagenette. Check LoadModel.py for the list of supported models.')
+parser.add_argument('--activation', type=str, default='mish', help='Activation function for the model, set to sigmoid for MNIST, celu for CIFAR10 and mish for Imagenette')
 parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
 parser.add_argument('--weight_decay', type=float, default=0, help='Weight decay for the learning rate')
 parser.add_argument('--linear_epoch', type=int, default=100, help='Number of epochs for which the learning rate remains constant, applicable only to the learning rate scheduler')
@@ -198,10 +198,7 @@ criterion2 = GRLoss() if jacobian == 0 else JacobianReg()
 # ---------------------------------------------------------------------------- #
 
 optimizer = Optimizers.Adam(model.parameters(), lr = param.lr, weight_decay=weight_decay)
-steps_per_epoch = int(num_class * num_train * (num_unlabeled_per_labeled + 1)/batch_size)
-total_steps = num_epochs * steps_per_epoch
-linear_steps = linear_epoch * steps_per_epoch
-scheduler = LinearCosineLR(optimizer, total_steps, linear_steps=linear_steps)
+scheduler = LRScheduler(optimizer, step_size=30, gamma=1)
 starting_epoch = 1
 
 # ---------------------------------------------------------------------------- #
@@ -215,7 +212,7 @@ if resume:
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         starting_epoch = resume_epoch + 1
-        scheduler = LinearCosineLR(optimizer, total_steps, linear_steps=linear_steps, last_batch=resume_epoch*steps_per_epoch-1)
+        scheduler = LRScheduler(optimizer, step_size=30, gamma=1)
         success(f'Successfully loaded model file for epoch {resume_epoch}.')
 
 # ---------------------------------------------------------------------------- #
@@ -277,7 +274,7 @@ for epoch in range(starting_epoch, num_epochs + 1):
         # Get training anchor batch.
         start_batch = batchIdx*batch_size
         end_batch = min((batchIdx+1)*batch_size, x_anchor_tensor.shape[0])
-        
+
         x_anchor_clean = x_anchor_tensor[start_batch:end_batch].to(device)
         y_anchor_clean = y_anchor_tensor[start_batch:end_batch].to(device)
 
@@ -301,74 +298,105 @@ for epoch in range(starting_epoch, num_epochs + 1):
             x_neighbor_clean = neighbor_generator.addNeighbor(x_anchor_clean)
 
             if adversarial and (y_anchor_clean[0]!=-1):
+                # Adversarial training
+
                 # Get the ADVERSARIAL image(s) for this batch.
 
                 # Squeeze to remove information about batch size.
                 x_anchor_clean_squeezed = torch.squeeze(x_anchor_clean, 0)
-                
+
                 # Load the adversarial image(s).
                 x_anchor_adv, y_anchor_adv, is_successful = fgsm(x_anchor_clean_squeezed, y_anchor_clean, model, epsilon, device)
-                
+
                 # Add the success to success_cnt.
                 success_cnt += is_successful
 
-                # Get the neighbors for the ADVERSARIAL image(s)
-                x_neighbor_adv = neighbor_generator.addNeighbor(x_anchor_adv)
+                if jacobian:
+                    # Adversarial training + Jacobian regularization
+                    
+                    # Jacobian regularization requires gradients to be preserved for calculation of Jacobian loss.
+                    x_anchor_clean.requires_grad = True
+                    x_anchor_adv.requires_grad = True
+                    # Jacobian regularization does not require use of the neighbours.
+                    # We pass clean img, adv img into the model.
+                    combined_x = torch.cat((x_anchor_clean, x_anchor_adv), dim=0)
+                
+                    # Perform forward pass.
+                    combined_logits = model(combined_x)
 
-                # When doing adversarial training, we pass 4 things
-                # clean img, neighbor of clean img, adv img, neighbor of adv img.
-                combined_x = torch.cat((x_anchor_clean, x_neighbor_clean, x_anchor_adv, x_neighbor_adv), dim=0)
+                    x_anchor_clean_logits_boundary = batch_size
+                    x_anchor_adv_logits_boundary = x_anchor_clean_logits_boundary + batch_size
 
-                # Perform forward pass.
-                combined_logits = model(combined_x)
+                    x_anchor_clean_logits = combined_logits[0:x_anchor_clean_logits_boundary]
+                    x_anchor_adv_logits = combined_logits[x_anchor_clean_logits_boundary:x_anchor_adv_logits_boundary]
 
-                # Then, we get the logits for the respective images we passed in.
-                # clean img, neighbor of clean img, adv img, neighbor of adv img.
-                x_anchor_clean_logits_boundary = batch_size
-                x_neighbor_clean_logits_boundary = x_anchor_clean_logits_boundary + num_neighbor_per_anchor
-                x_anchor_adv_logits_boundary = x_neighbor_clean_logits_boundary + batch_size
+                    ce = (criterion1(x_anchor_clean_logits, y_anchor_clean) + adv_ratio * criterion1(x_anchor_adv_logits, y_anchor_clean)) / (1.0 + adv_ratio)
+                    gr = grad_reg_lambda * criterion2(combined_x, combined_logits)
 
-                x_anchor_clean_logits = combined_logits[0:x_anchor_clean_logits_boundary]
-                x_neighbor_clean_logits = combined_logits[x_anchor_clean_logits_boundary:x_neighbor_clean_logits_boundary]
-                x_anchor_adv_logits = combined_logits[x_neighbor_clean_logits_boundary:x_anchor_adv_logits_boundary]
-                x_neighbor_adv_logits = combined_logits[x_anchor_adv_logits_boundary:]
+                else:
+                    # Adversarial training + Our regularization
 
-                # Calculate individual losses.
-                ce = (criterion1(x_anchor_clean_logits, y_anchor_clean) + adv_ratio * criterion1(x_anchor_adv_logits, y_anchor_clean)) / (1.0 + adv_ratio)
-                gr1 = grad_reg_lambda * criterion2(x_anchor_clean_logits.softmax(dim=-1), x_neighbor_clean_logits.softmax(dim=-1), x_anchor_clean, x_neighbor_clean)
-                gr2 = grad_reg_lambda * criterion2(x_anchor_adv_logits.softmax(dim=-1), x_neighbor_adv_logits.softmax(dim=-1), x_anchor_adv, x_neighbor_adv)
-                gr = gr1 + gr2
+                    # Get the neighbors for the ADVERSARIAL image(s)
+                    x_neighbor_adv = neighbor_generator.addNeighbor(x_anchor_adv)
 
-                # Clear up unused variables to reduce RAM usage.
-                del x_anchor_clean_squeezed, x_anchor_adv, x_anchor_adv_logits, x_neighbor_adv, x_neighbor_adv_logits, y_anchor_adv
-            elif jacobian:
-                # Jacobian Regularization requires gradients to be preserved for calculation of Jacobian loss.
-                x_anchor_clean.requires_grad = True
-                # Perform forward pass.
-                x_anchor_clean_logits = model(x_anchor_clean)
+                    # When doing adversarial training, we pass 4 things
+                    # clean img, neighbor of clean img, adv img, neighbor of adv img.
+                    combined_x = torch.cat((x_anchor_clean, x_neighbor_clean, x_anchor_adv, x_neighbor_adv), dim=0)
 
-                # Calculate losses based on Jacobian regularization.
-                ce = criterion1(x_anchor_clean_logits, y_anchor_clean)
-                gr = grad_reg_lambda * criterion2(x_anchor_clean, x_anchor_clean_logits)
+                    # Perform forward pass.
+                    combined_logits = model(combined_x)
+
+                    # Then, we get the logits for the respective images we passed in.
+                    # clean img, neighbor of clean img, adv img, neighbor of adv img.
+                    x_anchor_clean_logits_boundary = batch_size
+                    x_neighbor_clean_logits_boundary = x_anchor_clean_logits_boundary + num_neighbor_per_anchor
+                    x_anchor_adv_logits_boundary = x_neighbor_clean_logits_boundary + batch_size
+
+                    x_anchor_clean_logits = combined_logits[0:x_anchor_clean_logits_boundary]
+                    x_neighbor_clean_logits = combined_logits[x_anchor_clean_logits_boundary:x_neighbor_clean_logits_boundary]
+                    x_anchor_adv_logits = combined_logits[x_neighbor_clean_logits_boundary:x_anchor_adv_logits_boundary]
+                    x_neighbor_adv_logits = combined_logits[x_anchor_adv_logits_boundary:]
+
+                    # Calculate individual losses.
+                    ce = (criterion1(x_anchor_clean_logits, y_anchor_clean) + adv_ratio * criterion1(x_anchor_adv_logits, y_anchor_clean)) / (1.0 + adv_ratio)
+                    gr1 = grad_reg_lambda * criterion2(x_anchor_clean_logits.softmax(dim=-1), x_neighbor_clean_logits.softmax(dim=-1), x_anchor_clean, x_neighbor_clean)
+                    gr2 = grad_reg_lambda * criterion2(x_anchor_adv_logits.softmax(dim=-1), x_neighbor_adv_logits.softmax(dim=-1), x_anchor_adv, x_neighbor_adv)
+                    gr = gr1 + gr2
+
             else:
-                # Use our own regularization.
-                # Note that if no adversarial training occurs, then we would only be concerned with:
-                # clean img, neighbor of clean img.
-                combined_x = torch.cat((x_anchor_clean, x_neighbor_clean), dim=0)
+                # No adversarial training
 
-                # Perform forward pass.
-                combined_logits = model(combined_x)
+                if jacobian:
+                    # No adversarial training + Jacobian regularization
 
-                # Then, we get the logits for the respective images we passed in.
-                # Clean img, neighbor of clean img, adv img, neighbor of adv img.
-                x_anchor_clean_logits_boundary = batch_size
+                    # Jacobian Regularization requires gradients to be preserved for calculation of Jacobian loss.
+                    x_anchor_clean.requires_grad = True
+                    # Perform forward pass.
+                    x_anchor_clean_logits = model(x_anchor_clean)
 
-                x_anchor_clean_logits = combined_logits[0:x_anchor_clean_logits_boundary]
-                x_neighbor_clean_logits = combined_logits[x_anchor_clean_logits_boundary:]
+                    # Calculate losses based on Jacobian regularization.
+                    ce = criterion1(x_anchor_clean_logits, y_anchor_clean)
+                    gr = grad_reg_lambda * criterion2(x_anchor_clean, x_anchor_clean_logits)
+                
+                else:
+                    # No adversarial training + Our regularization
+                    # Note that if no adversarial training occurs, then we would only be concerned with:
+                    # clean img, neighbor of clean img.
+                    combined_x = torch.cat((x_anchor_clean, x_neighbor_clean), dim=0)
 
-                # Calculate individual losses.
-                ce = criterion1(x_anchor_clean_logits, y_anchor_clean)
-                gr = grad_reg_lambda * criterion2(x_anchor_clean_logits.softmax(dim=-1), x_neighbor_clean_logits.softmax(dim=-1), x_anchor_clean, x_neighbor_clean)
+                    # Perform forward pass.
+                    combined_logits = model(combined_x)
+
+                    # Then, we get the logits for the respective images we passed in.
+                    # Clean img, neighbor of clean img, adv img, neighbor of adv img.
+                    x_anchor_clean_logits_boundary = batch_size
+
+                    x_anchor_clean_logits = combined_logits[0:x_anchor_clean_logits_boundary]
+                    x_neighbor_clean_logits = combined_logits[x_anchor_clean_logits_boundary:]
+
+                    # Calculate individual losses.
+                    ce = criterion1(x_anchor_clean_logits, y_anchor_clean)
+                    gr = grad_reg_lambda * criterion2(x_anchor_clean_logits.softmax(dim=-1), x_neighbor_clean_logits.softmax(dim=-1), x_anchor_clean, x_neighbor_clean)
 
         # Calculate overall loss.
         ce_loss += ce.sum().item()
@@ -379,7 +407,7 @@ for epoch in range(starting_epoch, num_epochs + 1):
         loss.backward()
         optimizer.step()
         optimizer.zero_grad()
-        scheduler.step()
+        scheduler.scheduler.step()
         
         # Calculate train loss and accuracy
         y_pred = x_anchor_clean_logits.softmax(dim=-1).argmax(-1)

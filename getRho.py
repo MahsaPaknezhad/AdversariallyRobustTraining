@@ -25,18 +25,18 @@ from Logging import info, success
 
 parser = argparse.ArgumentParser()
 # Dataset parameters.
-parser.add_argument('--dataset', type=str, choices=['MNIST', 'CIFAR10', 'Imagenette'], help='Dataset to use for this experiment')
-parser.add_argument('--data_dir', type=str, default='../data', help='Folder where the dataset is located')
-parser.add_argument('--output_dir', type=str, default='../output', help='Directory to output results to. This will also be the same place where the trained model files are read from')
-parser.add_argument('--settings_list', type=str, help='Comma separated string of settings to consider when performing this experiment')
-parser.add_argument('--seed_list', type=str, help='Comma separated string of seeds to consider when performing this experiment')
-parser.add_argument('--imsize', type=int, help='Image size, set to 32 for MNIST and CIFAR10, set to 128 for Imagenette')
+parser.add_argument('--dataset', type=str, default='CIFAR10', choices=['MNIST', 'CIFAR10', 'Imagenette'], help='Dataset to use for this experiment')
+parser.add_argument('--data_dir', type=str, default='/media/mahsa/Element/Regularization/data', help='Folder where the dataset is located')
+parser.add_argument('--output_dir', type=str, default='/media/mahsa/Element/Regularization/', help='Directory to output results to. This will also be the same place where the trained model files are read from')
+parser.add_argument('--settings_list', type=str, default='model-cifar-ResNet9-adv', help='Comma separated string of settings to consider when performing this experiment')
+parser.add_argument('--seed_list', type=str, default='27432', help='Comma separated string of seeds to consider when performing this experiment')#27432,30416,48563,51985,842016
+parser.add_argument('--imsize', type=int, default= 32, help='Image size, set to 32 for MNIST and CIFAR10, set to 128 for Imagenette')
 # Model parameters.
-parser.add_argument('--model', type=str, help='Model type, set to basicmodel for MNIST, resnet9 for CIFAR10 and xresnet18 for Imagenette. Check LoadModel.py for the list of supported models.')
-parser.add_argument('--activation', type=str, help='Activation function for the model, set to sigmoid for MNIST, celu for CIFAR10 and mish for Imagenette')
-parser.add_argument('--epoch', type=int, default=200, help='Specify the epoch of the model file to test')
+parser.add_argument('--model', type=str, default='ResNet9', help='Model type, set to basicmodel for MNIST, resnet9 for CIFAR10 and xresnet18 for Imagenette. Check LoadModel.py for the list of supported models.')
+parser.add_argument('--activation', type=str, default='celu', help='Activation function for the model, set to sigmoid for MNIST, celu for CIFAR10 and mish for Imagenette')
+parser.add_argument('--epoch', type=int, default=60, help='Specify the epoch of the model file to test')
 # Adversarial attack parameters.
-parser.add_argument('--max_iter', type=int, help='Max number of iterations that the DeepFool algorithm can run when doing the attack. Set to 23 for MNIST, 9 for CIFAR10 and 4 for Imagenette')
+parser.add_argument('--max_iter', type=int, default= 9, help='Max number of iterations that the DeepFool algorithm can run when doing the attack. Set to 23 for MNIST, 9 for CIFAR10 and 4 for Imagenette')
 # Miscellaneous experiment parameters
 parser.add_argument('--seed', type=int, default=0, help='Seed to run experiment. Ignored if time != -1')
 parser.add_argument('--time', type=int, default=-1, help='Seed used to generate actual seed to run experiment. Ignored if -1')
@@ -51,7 +51,7 @@ param = parser.parse_args()
 dataset = param.dataset
 output_dir = param.output_dir
 settings_list = param.settings_list.split(',')
-seed_list = [f'Seed_{s}' for s in param.seed_list.split(',')]
+seed_list = [s for s in param.seed_list.split(',')]
 # Model parameters.
 epoch = param.epoch
 # Adversarial attack parameters.
@@ -60,7 +60,6 @@ max_iter = param.max_iter
 if param.time != -1:
     param.seed = getSeed(time = param.time)
 device = param.device
-target_path = os.path.join(output_dir, dataset)
 
 # ---------------------------------------------------------------------------- #
 #                           INSTANTIATE DATASET CLASS                          #
@@ -97,8 +96,12 @@ for j, setting in enumerate(settings_list):
         info(f'Processing {setting}/{seed_string}')
 
         # Load model.
-        model_path = os.path.join(target_path, setting, seed_string, f'model_epoch={epoch}.pt')
-        model.load_state_dict(torch.load(model_path)['model_state_dict'])
+        target_path = os.path.join(output_dir, setting, seed_string)
+        model_path = os.path.join(target_path, f'model-res-epoch{epoch}.pt')
+        state_dict = torch.load(model_path)
+        model.load_state_dict(state_dict)
+        '''model_path = os.path.join(target_path, setting, seed_string, f'model_epoch={epoch}.pt')
+        model.load_state_dict(torch.load(model_path)['model_state_dict'])'''
         success(f'Successfully loaded model from {model_path}.')
 
         # Try to generate DeepFool adversarial images.
@@ -134,7 +137,7 @@ for j, setting in enumerate(settings_list):
         
         results_df = results_df.append({"Setting": setting, "Seed": int(seed_string[-5:]), "Rho Value": rho_mean, "Successful Attack Ratio": success_ratio}, ignore_index=True)
 
-    save_path = os.path.join(target_path, f"Rho Results Max Iter {max_iter} Checkpoint {j+1}.pkl")
+    save_path = os.path.join(output_dir, setting, f"Rho Results Max Iter {max_iter} Checkpoint {j+1}.pkl")
 
     with open(save_path, "wb") as f:
         pickle.dump(results_df, f)

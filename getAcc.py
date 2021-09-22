@@ -98,7 +98,7 @@ print(os.getcwd())
 
 parser = argparse.ArgumentParser()
 ############################## PARSER ########################################parser = argparse.ArgumentParser()
-'''parser.add_argument('--dataset', default= 'Imagenette')
+parser.add_argument('--dataset', default= 'Imagenette')
 parser.add_argument('--data_dir', default='../data', help = 'Folder where the dataset is located')
 parser.add_argument('--method', default='../output/Adversarial/Imagenette/Reg_vs_Adv&Reg/', help = "The premise to be used, for documentation purposes")
 parser.add_argument('--model', default='xresnet18')
@@ -113,7 +113,7 @@ parser.add_argument('--imsize', type=int, default=128, help = 'Only necessary if
 parser.add_argument('--seed', type=int, default=0, help = 'Seed to run experiment. Ignored if time != -1')
 parser.add_argument('--time', type=int, default=-1,   help = "`Seed` to generate actual seed to run experiment. Ignored if -1")
 parser.add_argument('--device', default = 'cuda')
-param = parser.parse_args()'''
+param = parser.parse_args()
 ################################# PARSER #####################################
 '''parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', default= 'CIFAR10')
@@ -133,12 +133,12 @@ parser.add_argument('--time', type=int, default=-1, help = "`Seed` to generate a
 parser.add_argument('--device', default = 'cuda')
 param = parser.parse_args()'''
 ############################### PARAMETERS ###################################
-parser = argparse.ArgumentParser()
+'''parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', default= 'MNIST')
 parser.add_argument('--data_dir', default='../data', help = 'Folder where the dataset is located')
 parser.add_argument('--method', default='NoDefence', help = "The premise to be used, for documentation purposes")
 parser.add_argument('--model', default='basicmodel')
-parser.add_argument('--epoch', default= 400, help = 'Weight of the model at that epoch to test')
+parser.add_argument('--epoch', default= 100, help = 'Weight of the model at that epoch to test')
 parser.add_argument('--activation', default='sigmoid')
 parser.add_argument('--batch_size', type=int, default=32, help = 'batch size to do attack')
 parser.add_argument('--attack_method', default='deepfoollinf', help = 'Either fgsm, pgd, deepfooll2 or deepfoollinf')
@@ -149,7 +149,7 @@ parser.add_argument('--imsize', type=int, default=128, help = 'Only necessary if
 parser.add_argument('--seed', type=int, default=0, help = 'Seed to run experiment. Ignored if time != -1')
 parser.add_argument('--time', type=int, default=-1, help = "`Seed` to generate actual seed to run experiment. Ignored if -1")
 parser.add_argument('--device', default = 'cuda')
-param = parser.parse_args()
+param = parser.parse_args()'''
 ################################# PARSER #####################################
 '''parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', default= 'SVHN')

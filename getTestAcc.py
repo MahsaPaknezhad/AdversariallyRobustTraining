@@ -22,16 +22,16 @@ from tqdm import trange
 
 # Dataset parameters.
 parser = argparse.ArgumentParser()
-parser.add_argument('--dataset', type=str, choices=['MNIST', 'CIFAR10', 'Imagenette'], help='Dataset to use for this experiment')
-parser.add_argument('--data_dir', type=str, default='../data', help='Folder where the dataset is located')
-parser.add_argument('--output_dir', type=str, default='../output', help='Directory to output results to. This will also be the same place where the trained model files are read from')
-parser.add_argument('--settings_list', type=str, help='Semicolon separated string of settings to consider when performing this experiment')
-parser.add_argument('--seed_list', type=str, help='Semicolon separated string of seeds to consider when performing this experiment')
-parser.add_argument('--imsize', type=int, help='Image size, set to 32 for MNIST and CIFAR10, set to 128 for Imagenette')
+parser.add_argument('--dataset', type=str, default='CIFAR10', choices=['MNIST', 'CIFAR10', 'Imagenette'], help='Dataset to use for this experiment')
+parser.add_argument('--data_dir', type=str, default='/media/mahsa/Element/Regularization/data', help='Folder where the dataset is located')
+parser.add_argument('--output_dir', type=str, default='/media/mahsa/Element/Regularization/', help='Directory to output results to. This will also be the same place where the trained model files are read from')
+parser.add_argument('--settings_list', type=str, default='model-cifar-ResNet9-adv', help='Semicolon separated string of settings to consider when performing this experiment')
+parser.add_argument('--seed_list', type=str, default='27432', help='Semicolon separated string of seeds to consider when performing this experiment')
+parser.add_argument('--imsize', type=int, default=32, help='Image size, set to 32 for MNIST and CIFAR10, set to 128 for Imagenette')
 # Model parameters.
-parser.add_argument('--model', type=str, help='Model type, set to basicmodel for MNIST, resnet9 for CIFAR10 and xresnet18 for Imagenette. Check LoadModel.py for the list of supported models.')
-parser.add_argument('--activation', type=str, help='Activation function for the model, set to sigmoid for MNIST, celu for CIFAR10 and mish for Imagenette')
-parser.add_argument('--epoch', type=int, default=200, help='Specify the epoch of the model file to test')
+parser.add_argument('--model', type=str, default='ResNet9', help='Model type, set to basicmodel for MNIST, resnet9 for CIFAR10 and xresnet18 for Imagenette. Check LoadModel.py for the list of supported models.')
+parser.add_argument('--activation', type=str, default='celu', help='Activation function for the model, set to sigmoid for MNIST, celu for CIFAR10 and mish for Imagenette')
+parser.add_argument('--epoch', type=int, default=100, help='Specify the epoch of the model file to test')
 parser.add_argument('--batch_size', type=int, default=32, help='Batch size to do forward pass for measurement of clean accuracy')
 # Miscellaneous experiment parameters.
 parser.add_argument('--seed', type=int, default=0, help='Seed to run experiment. Ignored if time != -1')
@@ -46,13 +46,12 @@ param = parser.parse_args()
 # Dataset parameters.
 dataset = param.dataset
 output_dir = param.output_dir
-settings_list = param.settings_list.split(';')
-seed_list = [f'Seed_{s}' for s in param.seed_list.split(';')]
+settings_list = param.settings_list.split(',')
+seed_list = [s for s in param.seed_list.split(',')]
 # Model parameters.
 epoch = param.epoch
 batch_size = param.batch_size
 # Miscellaneous experiment parameters.
-target_path = os.path.join(output_dir, dataset)
 device = param.device
 
 # ---------------------------------------------------------------------------- #
@@ -92,8 +91,12 @@ for setting in settings_list:
         info(f'Processing {setting}/{seed_string}')
 
         # Load the model
-        model_path = os.path.join(target_path, setting, seed_string, f'model_epoch={epoch}.pt')
-        model.load_state_dict(torch.load(model_path)['model_state_dict'])
+        '''model_path = os.path.join(target_path, setting, seed_string, f'model_epoch={epoch}.pt')
+        model.load_state_dict(torch.load(model_path)['model_state_dict'])'''
+        target_path = os.path.join(output_dir, setting, seed_string)
+        model_path = os.path.join(target_path, f'model-res-epoch{epoch}.pt')
+        state_dict = torch.load(model_path)
+        model.load_state_dict(state_dict)
         model.eval().to(device)
 
         # Perform the calculation of clean accuracy

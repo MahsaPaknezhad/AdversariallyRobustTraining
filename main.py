@@ -19,9 +19,9 @@ from LossFunction import CELoss, GRLoss
 from DataHandler import DataHandler
 from Seed import getSeed
 from Logging import Logging, info, success, warn
-from LRSchedulers import LRScheduler
 from FGSM import fgsm
 from jacobian import JacobianReg
+from getScheduler import lr_scheduler
 
 # ---------------------------------------------------------------------------- #
 #                                ARGUMENT PARSER                               #
@@ -200,7 +200,7 @@ criterion2 = GRLoss() if jacobian == 0 else JacobianReg()
 
 optimizer = Optimizers.Adam(model.parameters(), lr = param.lr, weight_decay=weight_decay)
 steps_per_epoch = int(num_train * (num_unlabeled_per_labeled+1)/batch_size)
-total_steps = n_epochs * steps_per_epoch
+total_steps = num_epochs * steps_per_epoch
 linear_steps = linear_epoch * steps_per_epoch
 scheduler = lr_scheduler.LinearCosineLR(optimizer, total_steps, linear_steps = linear_steps)
 starting_epoch = 1
@@ -411,7 +411,7 @@ for epoch in range(starting_epoch, num_epochs + 1):
         loss.backward()
         optimizer.step()
         optimizer.zero_grad()
-        scheduler.scheduler.step()
+        scheduler.step()
         
         # Calculate train loss and accuracy
         y_pred = x_anchor_clean_logits.softmax(dim=-1).argmax(-1)

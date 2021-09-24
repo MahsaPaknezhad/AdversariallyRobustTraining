@@ -34,8 +34,8 @@ parser.add_argument('--resume_epoch', type=int, default=-1, help='Epoch to resum
 # Dataset parameters.
 parser.add_argument('--dataset', type=str, default = 'Imagenette', choices=['MNIST', 'CIFAR10', 'Imagenette'], help='Dataset to be used for training')
 parser.add_argument('--setting', default='imagenette_jacobian',type=str, help='Name of your setting directory, leave blank for an automatically generated setting name that includes experiment parameters.')
-parser.add_argument('--data_dir', type=str, default='../data', help='Directory to download dataset to')
-parser.add_argument('--output_dir', type=str, default='../output/', help='Directory to output results')
+parser.add_argument('--data_dir', type=str, default='/media/mahsa/Element/Regularization/data', help='Directory to download dataset to')
+parser.add_argument('--output_dir', type=str, default='/media/mahsa/Element/Regularization/output/', help='Directory to output results')
 parser.add_argument('--num_class', type=int, default=10, help = 'Number of classes in the dataset')
 parser.add_argument('--num_train', type=int, default=-1, help='Number of train images per class, set to -1 to use full dataset')
 parser.add_argument('--num_val', type=int, default=-1, help='Number of validation images per class, set to -1 to use full dataset')
@@ -43,23 +43,23 @@ parser.add_argument('--imsize', type=int, default=128, help='Image size, set to 
 parser.add_argument('--seed', type=int, default=27432, help='Seed to be used during training, choose from 27432, 30416, 48563, 51985 or 84216 to reproduce results in the paper')
 parser.add_argument('--time', type=int, default=-1, help='Seed to set the seed to be used during training, not used by default')
 # Jacobian parameters.
-parser.add_argument('--jacobian', type=int, default=1, help='Whether to use jacobian regularization or not.')
-# Gradient regularization parameters. 
-parser.add_argument('--grad_reg_lambda', type=float, default=10000, help='Lambda for gradient regularization, set to 10,000 for MNIST, CIFAR10 and Imagenette, set to 1,000,000 for Imagenette when doing both adversarial training and gradient regularization')
-parser.add_argument('--num_unlabeled_per_labeled', type=int, default=0, help='Number of unlabeled points to be make per labeled point')
-parser.add_argument('--unlabeled_noise_std', type=float, default=0, help='Standard deviation to make unlabeled points, set to 0.016 for MNIST, 0.23769 for CIFAR10 and 0.138687 for Imagenette')
+parser.add_argument('--jacobian', type=int, default=0, help='Whether to use jacobian regularization or not.')
+# Gradient regularization parameters.
+parser.add_argument('--grad_reg_lambda', type=float, default=0, help='Lambda for gradient regularization, set to 100,000 for MNIST, 10,000 for CIFAR10 and 10,000 Imagenette, set to 1,000,000 for Imagenette when doing both adversarial training and gradient regularization')
+parser.add_argument('--num_unlabeled_per_labeled', type=int, default=0, help='Number of unlabeled points to be made per labeled point')
+parser.add_argument('--unlabeled_noise_std', type=float, default=0.138687, help='Standard deviation to make unlabeled points, set to 0.0126 for MNIST, 0.23769 for CIFAR10 and 0.138687 for Imagenette')
 parser.add_argument('--num_neighbor_per_anchor', type=int, default=0, help='Number of neighbor points to be make per anchor point')
-parser.add_argument('--neighbor_noise_std', type=float, default=0, help='Standard deviation to make neighbors, set to 0.002 for MNIST, 0.023769 for CIFRAR10 and 0.0138687 for Imagenette')
+parser.add_argument('--neighbor_noise_std', type=float, default=0.0138687, help='Standard deviation to make neighbors, set to 0.0126 for MNIST, 0.023769 for CIFRAR10 and 0.0138687 for Imagenette')
 parser.add_argument('--inject_noise', type=int, default=0, help='Inject noise in the middle of the network')
 # Adversarial training parameters.
 parser.add_argument('--adversarial', type=int, default=0, help='Whether to perform adversarial training or not')
 parser.add_argument('--epsilon', type=float, default=0.1, help='Epsilon to use during the FGSM attack, only used if adversarial=1')
 parser.add_argument('--adv_ratio', type=float, default=0.3, help='The weight that is used in the calculation of the weighted average of clean image loss and perturbed image loss')
 # Training parameters.
-parser.add_argument('--model', type=str, default='xresnet18', help='Model type, set to basicmodel for MNIST, resnet9 for CIFAR10 and xresnet18 for Imagenette. Check LoadModel.py for the list of supported models.')
+parser.add_argument('--model', type=str, default='XResNet18', help='Model type, set to BasicModel for MNIST, ResNet9 for CIFAR10 and XResNet18 for Imagenette. Check LoadModel.py for the list of supported models.')
 parser.add_argument('--activation', type=str, default='mish', help='Activation function for the model, set to sigmoid for MNIST, celu for CIFAR10 and mish for Imagenette')
-parser.add_argument('--lr', type=float, default=0.001, help='Learning rate')
-parser.add_argument('--weight_decay', type=float, default=0, help='Weight decay for the learning rate')
+parser.add_argument('--lr', type=float, default=0.0001, help='Learning rate is 0.001 for MNIST dataset, 0.0001 for CIFAR10 and Imagenette datasets')
+parser.add_argument('--weight_decay', type=float, default=0.0001, help='Weight decay is 0 for MNIST dataset and 0.0001 for CIFAR10 and Imagenette datasets')
 parser.add_argument('--linear_epoch', type=int, default=100, help='Number of epochs for which the learning rate remains constant, applicable only to the learning rate scheduler')
 parser.add_argument('--num_epochs', type=int, default=200, help='Number of epochs to train the network')
 parser.add_argument('--batch_size', type=int, default=1, help='Batch size to do training')
@@ -180,6 +180,7 @@ else:
     exit
 dataset_class = Dataset(param)
 (x_train_array, y_train_array), (x_val_array, y_val_array) = dataset_class.getTrainVal()
+num_train = x_train_array.shape[0]
 num_labeled = x_train_array.shape[0]
 neighbor_generator = NeighborGenerator(neighbor_noise_std, num_neighbor_per_anchor)
 unlabeled_generator = UnlabeledGenerator(unlabeled_noise_std, num_unlabeled_per_labeled)
@@ -198,7 +199,10 @@ criterion2 = GRLoss() if jacobian == 0 else JacobianReg()
 # ---------------------------------------------------------------------------- #
 
 optimizer = Optimizers.Adam(model.parameters(), lr = param.lr, weight_decay=weight_decay)
-scheduler = LRScheduler(optimizer, step_size=30, gamma=1)
+steps_per_epoch = int(num_train * (num_unlabeled_per_labeled+1)/batch_size)
+total_steps = n_epochs * steps_per_epoch
+linear_steps = linear_epoch * steps_per_epoch
+scheduler = lr_scheduler.LinearCosineLR(optimizer, total_steps, linear_steps = linear_steps)
 starting_epoch = 1
 
 # ---------------------------------------------------------------------------- #
@@ -212,7 +216,7 @@ if resume:
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         starting_epoch = resume_epoch + 1
-        scheduler = LRScheduler(optimizer, step_size=30, gamma=1)
+        scheduler = lr_scheduler.LinearCosineLR(optimizer, total_steps, linear_steps=linear_steps, last_batch=resume_epoch*steps_per_epoch-1)
         success(f'Successfully loaded model file for epoch {resume_epoch}.')
 
 # ---------------------------------------------------------------------------- #

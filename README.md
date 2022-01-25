@@ -8,6 +8,10 @@ In this project, we develop a training framework to observe if DL models are abl
 <img src="TrainingFramework.png" width=600>
  </p>
 
+# Paper
+Please cite our paper:
+Paknezhad, M., Ngo, C. P., Winarto, A. A., Cheong, A., Yang, B. C., Jiayang, W., & Kuan, L. H. (2021). Explaining Adversarial Vulnerability with a Data Sparsity Hypothesis. arXiv preprint arXiv:2103.00778.
+
 
 
 
